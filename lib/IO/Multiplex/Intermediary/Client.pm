@@ -32,37 +32,25 @@ has port => (
 
 sub BUILD {
     my $self = shift;
-    $self->_client_start;
+   $self->connect_to_intermediary;
+   $self->custom_startup(@_);
 }
 
-sub custom_startup { }
-
 # start the server
-sub _client_start {
-   my ($self) = @_;
+sub connect_to_intermediary {
+    my ($self) = @_;
     POE::Component::Client::TCP->new(
         RemoteAddress   => $self->host,
         RemotePort      => $self->port,
-        Connected       => sub { _server_connect($self,    @_) },
-        Disconnected    => sub { _server_disconnect($self, @_) },
-        ServerInput     => sub { _server_input($self,      @_) },
+        Connected       => sub { $self->_server_connect(@_) },
+        Disconnected    => sub { $self->_server_disconnect(@_) },
+        ServerInput     => sub { $self->_server_input(@_) },
     );
 
-    $self->custom_startup(@_);
 }
 
-# handle client input
-sub _server_connect {
-    my $self = shift;
-    $self->socket($_[HEAP]{server});
-};
 
-# handle client input
-sub _server_disconnect {
-    my $self = shift;
-    $self->clear_socket;
-    delete $_[HEAP]{server};
-};
+sub custom_startup { }
 
 # handle client input
 sub _server_input {
@@ -72,7 +60,19 @@ sub _server_input {
     $_[HEAP]{server}->put($self->parse_json($input));
 };
 
-sub response_hook {
+# handle client input
+sub _server_connect {
+    my $self = shift;
+    $self->socket($_[HEAP]{server});
+};
+
+sub _server_disconnect {
+    my $self = shift;
+    $self->clear_socket;
+    delete $_[HEAP]{server};
+};
+
+sub build_response {
     my $self     = shift;
     my $wheel_id = shift;
     my $input    = shift;
@@ -95,7 +95,7 @@ sub input_hook {
         {
             param => 'output',
             data => {
-                value => $self->_response(
+                value => $self->build_response(
                     $data->{data}->{id},
                     $data->{data}->{value}
                 ),

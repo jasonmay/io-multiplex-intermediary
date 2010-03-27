@@ -1,8 +1,8 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use IO::Intermediary;
+use IO::Multiplex::Intermediary;
 
-my $mud = IO::Intermediary->new;
+my $mud = IO::Multiplex::Intermediary->new;
 
 $mud->run;

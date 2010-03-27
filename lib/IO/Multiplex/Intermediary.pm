@@ -77,7 +77,6 @@ sub _player_start {
 #TODO send backup info
 sub _controller_client_accept {
     my $self = shift;
-    warn "[controller] connect";
 
     $self->controller_socket($_[HEAP]->{client});
 
@@ -108,7 +107,6 @@ sub _player_client_accept {
 
     my $wheel_id = $rw->ID;
     $self->rw_set->{$wheel_id} = $rw;
-    warn "[player] ($wheel_id) connect";
 
     $self->send_to_controller(
         {
@@ -124,8 +122,6 @@ sub _player_client_input {
     my ($self)             = @_;
     my ($input, $wheel_id) = @_[ARG0, ARG1];
     $input =~ s/[\r\n]*$//;
-
-    warn "[player] ($wheel_id) got input: $input";
 
     $self->send_to_controller(
         {
@@ -179,7 +175,6 @@ sub _player_client_error {
     my ($self)   = @_;
     my $wheel_id = $_[ARG3];
     delete $self->rw_set->{$wheel_id};
-    warn "[player] ($wheel_id) disconnect";
     $self->send_to_controller(
         {
             param => 'disconnect',
@@ -192,15 +187,11 @@ sub _player_client_error {
 
 #TODO clean shutdown etc
 sub _player_server_error {
-    my ($self) = @_;
-    my ($operation, $errnum, $errstr) = @_[ARG0, ARG1, ARG2];
-    warn "[SERVER] $operation error $errnum: $errstr";
+    #stub
 }
 
 sub _controller_server_error {
-    my $self = shift;
-    warn "[controller] disconnect";
-    $_->put("Hold tight!\nThe MUD will be back up shortly.\n") for values %{$self->rw_set||{}};
+    #stub
 }
 
 
