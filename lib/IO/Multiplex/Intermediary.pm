@@ -170,7 +170,6 @@ sub _controller_client_input {
 
 }
 
-#TODO let abermud know
 sub _player_client_error {
     my ($self)   = @_;
     my $wheel_id = $_[ARG3];
