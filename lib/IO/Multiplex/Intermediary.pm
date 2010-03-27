@@ -6,7 +6,6 @@ use namespace::autoclean;
 use JSON;
 use List::MoreUtils qw(any);
 use Scalar::Util qw(reftype);
-use DDS;
 
 use POE qw(
     Wheel::SocketFactory
@@ -15,7 +14,7 @@ use POE qw(
     Filter::Stream
 );
 
-has player_sockets => (
+has external_sockets => (
     is  => 'rw',
     isa => 'POE::Wheel::SocketFactory',
 );
@@ -26,7 +25,7 @@ has rw_set => (
     default => sub { +{} },
 );
 
-has player_port => (
+has external_port => (
     is  => 'ro',
     isa => 'Int',
     default => 6715
@@ -55,13 +54,13 @@ has socket_info => (
     default => sub { +{} },
 );
 
-sub _player_start {
+sub _start {
     my ($self) = @_;
-    $self->player_sockets(
+    $self->external_sockets(
         POE::Wheel::SocketFactory->new(
-            BindPort     => $self->player_port,
-            SuccessEvent => 'player_client_accept',
-            FailureEvent => 'player_server_error',
+            BindPort     => $self->external_port,
+            SuccessEvent => 'client_accept',
+            FailureEvent => 'server_error',
             Reuse        => 'yes',
         )
     );
@@ -94,15 +93,15 @@ sub _controller_client_accept {
     }
 }
 
-sub _player_client_accept {
+sub _client_accept {
     my ($self) = @_;
     my $socket = $_[ARG0];
     my $rw = POE::Wheel::ReadWrite->new(
         Handle     => $socket,
         Driver     => POE::Driver::SysRW->new,
         Filter     => POE::Filter::Stream->new,
-        InputEvent => 'player_client_input',
-        ErrorEvent => 'player_client_error',
+        InputEvent => 'client_input',
+        ErrorEvent => 'client_error',
     );
 
     my $wheel_id = $rw->ID;
@@ -118,7 +117,7 @@ sub _player_client_accept {
     );
 }
 
-sub _player_client_input {
+sub _client_input {
     my ($self)             = @_;
     my ($input, $wheel_id) = @_[ARG0, ARG1];
     $input =~ s/[\r\n]*$//;
@@ -170,7 +169,7 @@ sub _controller_client_input {
 
 }
 
-sub _player_client_error {
+sub _client_error {
     my ($self)   = @_;
     my $wheel_id = $_[ARG3];
     delete $self->rw_set->{$wheel_id};
@@ -185,7 +184,7 @@ sub _player_client_error {
 }
 
 #TODO clean shutdown etc
-sub _player_server_error {
+sub _server_error {
     #stub
 }
 
@@ -216,12 +215,12 @@ sub run {
     POE::Kernel->run();
 }
 
-event START                => \&_player_start;
+event START                => \&_start;
 
-event player_client_accept => \&_player_client_accept;
-event player_server_error  => \&_player_server_error;
-event player_client_input  => \&_player_client_input;
-event player_client_error  => \&_player_client_error;
+event client_accept => \&_client_accept;
+event server_error  => \&_server_error;
+event client_input  => \&_client_input;
+event client_error  => \&_client_error;
 
 #event controller_client_input   => \&_controller_client_input;
 ##event controller_client_accept  => \&_controller_client_accept;

@@ -5,8 +5,6 @@ use POE qw(Component::Client::TCP Wheel::ReadWrite);
 use Moose;
 use namespace::autoclean;
 use JSON;
-use Carp;
-use DDS;
 
 local $| = 1;
 
