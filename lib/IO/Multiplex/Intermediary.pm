@@ -38,7 +38,6 @@ sub _build_listener {
         Listen    => 5,
         Reuse     => 1,
     ) or die $!;
-    warn $socket;
     return $socket;
 }
 
@@ -54,14 +53,8 @@ sub _build_mux {
     my $self   = shift;
     my $mux    = IO::Multiplex->new;
 
-    my $socket = IO::Socket::INET->new(
-        LocalPort => $self->external_port,
-        Proto     => 'tcp',
-        Listen    => 5,
-        Reuse     => 1,
-    );
-
-    $mux->listen($socket);
+    $mux->listen($self->listener);
+    $mux->listen($self->client_handle);
     $mux->set_callback_object($self);
 
     return $mux;
@@ -86,9 +79,9 @@ sub _build_client_handle {
         LocalPort => $self->client_port,
         Proto     => 'tcp',
         Listen    => 5,
+        Reuse     => 1,
     );
 
-    $self->mux->listen($socket);
     return $socket;
 }
 
@@ -134,9 +127,12 @@ sub client_connection {
         my $self = shift;
         my $mux = shift;
         my $fh = shift;
-        warn "foo";
+
+        warn $self->client_handle;
+        warn $fh;
 
         if ($fh == $self->client_handle) {
+            warn "controller";
             $self->client_connection;
             return;
         }
@@ -162,8 +158,8 @@ sub mux_input {
     my $fh    = shift;
     my $input = shift;
 
-    warn "foo";
     if ($fh == $self->client_handle) {
+        warn "controller";
         $self->client_input($$input);
         return;
     }
@@ -172,7 +168,7 @@ sub mux_input {
         {
             param => 'input',
             data => {
-                id    => ,
+                id    => $self->id_lookup($fh),
                 value => $$input,
             }
         }
