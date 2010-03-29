@@ -278,11 +278,6 @@ sub run {
     1 while $self->cycle;
 }
 
-sub DEMOLISH {
-    my $self = shift;
-    $self->listener->shutdown;
-}
-
 __PACKAGE__->meta->make_immutable;
 
 1;
