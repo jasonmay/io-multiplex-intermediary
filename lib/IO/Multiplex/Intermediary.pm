@@ -7,15 +7,24 @@ use List::Util      qw(first);
 use List::MoreUtils qw(any);
 use Scalar::Util    qw(reftype);
 use IO::Socket;
-use IO::Multiplex;
+use IO::Select;
 use Data::UUID;
+use Data::Dumper;
 use JSON;
 
-has mux => (
+has read_set => (
     is         => 'ro',
-    isa        => 'IO::Multiplex',
+    isa        => 'IO::Select',
     lazy_build => 1,
 );
+
+sub _build_read_set {
+    warn "_build_read_set";
+    my $self = shift;
+    my $select = IO::Select->new($self->external_handle);
+    $select->add($self->client_handle);
+    return $select;
+}
 
 has filehandles => (
     is      => 'ro',
@@ -23,15 +32,15 @@ has filehandles => (
     default => sub { +{} },
 );
 
-has listener => (
+has external_handle => (
     is         => 'ro',
     isa        => 'IO::Socket::INET',
     lazy_build => 1,
 );
 
-sub _build_listener {
+sub _build_external_handle {
+    warn "_build_external_handle";
     my $self   = shift;
-    warn "foooioo";
     my $socket = IO::Socket::INET->new(
         LocalPort => $self->external_port,
         Proto     => 'tcp',
@@ -39,25 +48,6 @@ sub _build_listener {
         Reuse     => 1,
     ) or die $!;
     return $socket;
-}
-
-sub id_lookup {
-    my $self = shift;
-    my $fh   = shift;
-
-    return first { $self->filehandles->{$_} == $fh }
-           keys %{ $self->filehandles };
-}
-
-sub _build_mux {
-    my $self   = shift;
-    my $mux    = IO::Multiplex->new;
-
-    $mux->listen($self->listener);
-    $mux->listen($self->client_handle);
-    $mux->set_callback_object($self);
-
-    return $mux;
 }
 
 has external_port => (
@@ -68,7 +58,7 @@ has external_port => (
 
 has client_handle => (
     is         => 'rw',
-    isa        => 'IO::Socket::INET',
+    isa        => 'Maybe[IO::Socket::INET]',
     lazy_build => 1,
 );
 
@@ -85,26 +75,36 @@ sub _build_client_handle {
     return $socket;
 }
 
+has client_socket => (
+    is         => 'rw',
+    isa        => 'Maybe[IO::Socket::INET]',
+    clearer    => '_clear_client_socket',
+);
+
 has client_port => (
     is  => 'ro',
     isa => 'Int',
     default => 9000
 );
 
-has client_connected => (
-    is  => 'rw',
-    isa => 'Bool',
-    default => 0
-);
-
 has socket_info => (
     is  => 'rw',
-    isa => 'HashRef[Int]',
+    isa => 'HashRef',
     default => sub { +{} },
 );
 
+sub id_lookup {
+    warn "id_lookup";
+    my $self = shift;
+    my $fh   = shift;
+
+    return first { $self->filehandles->{$_} == $fh }
+           keys %{ $self->filehandles };
+}
+
 #TODO send backup info
-sub client_connection {
+sub client_connect_event {
+    warn "client_connect_event";
     my $self = shift;
 
     if ( scalar(%{$self->filehandles}) ) {
@@ -123,16 +123,12 @@ sub client_connection {
 
 {
     my $du = Data::UUID->new;
-    sub mux_connection {
+    sub connect_event {
+        warn "connect_event";
         my $self = shift;
-        my $mux = shift;
         my $fh = shift;
 
-        warn $self->client_handle;
-        warn $fh;
-
         if ($fh == $self->client_handle) {
-            warn "controller";
             $self->client_connection;
             return;
         }
@@ -141,41 +137,34 @@ sub client_connection {
 
         $self->filehandles->{$id} = $fh;
 
-        $self->send_to_client(
-            {
-                param => 'connect',
-                data  => {
-                    id    => $id,
-                }
+        my $data = {
+            param => 'connect',
+            data  => {
+                id    => $id,
             }
-        );
+        };
+        $self->send_to_client($data);
     }
 }
 
-sub mux_input {
+sub input_event {
+    warn "input_event";
     my $self  = shift;
-    my $mux   = shift;
     my $fh    = shift;
     my $input = shift;
 
-    if ($fh == $self->client_handle) {
-        warn "controller";
-        $self->client_input($$input);
-        return;
-    }
-
-    $self->send_to_client(
-        {
-            param => 'input',
-            data => {
-                id    => $self->id_lookup($fh),
-                value => $$input,
-            }
-        }
-    );
+    my $data = {
+        param => 'input',
+        data => {
+            id    => $self->id_lookup($fh),
+            value => $input,
+        },
+    };
+    $self->send_to_client($data);
 }
 
-sub client_input {
+sub client_input_event {
+    warn "client_input_event";
     my $self = shift;
     my $input = shift;
     chomp($input);
@@ -211,9 +200,8 @@ sub client_input {
 
 }
 
-sub mux_eof {
+sub disconnect_event {
     my $self = shift;
-    my $mux  = shift;
     my $fh   = shift;
 
     $self->send_to_client(
@@ -226,12 +214,12 @@ sub mux_eof {
     );
 }
 
-sub mux_timeout {
+sub client_disconnect_event {
     my $self = shift;
-    my $mux = shift;
 }
 
 sub send {
+    warn "send";
     my $self = shift;
     my $id = shift;
     my $data = shift;
@@ -240,6 +228,8 @@ sub send {
 }
 
 sub send_to_client {
+    warn "send_to_client";
+
     my $self   = shift;
     my $data   = shift;
 
@@ -247,16 +237,59 @@ sub send_to_client {
     print { $self->client_handle } to_json($data);
 }
 
+sub cycle {
+    my $self = shift;
+    my ($fh_set) = IO::Select->select($self->read_set, undef, undef, 0);
+
+    foreach my $fh (@$fh_set) {
+        if ($fh == $self->external_handle) {
+            my $socket = $fh->accept();
+            $self->read_set->add($socket);
+            $self->connect_event($socket);
+        }
+        elsif ($fh == $self->client_handle) {
+            if ($self->client_socket) {
+                warn '"nice try"';
+                $fh->accept->close;
+            }
+            else {
+                $self->client_socket( $fh->accept() );
+                $self->read_set->add($self->client_socket);
+                $self->client_connect_event($self->client_socket);
+
+                # no more listening necessary
+            }
+        }
+        else {
+            if( my $buf = <$fh> ) {
+                $self->input_event($fh, $buf);
+            }
+            else {
+                $self->read_set->remove($fh);
+                if ($fh == $self->client_socket) {
+                    $self->client_disconnect_event($fh);
+                    $self->_clear_client_socket;
+                }
+                else {
+                    $self->disconnect_event($fh);
+                }
+                close($fh);
+            }
+        }
+        #warn join(' ', $self->read_set->handles);
+    }
+
+    return 1;
+}
+
 sub run {
     my $self = shift;
-    $self->mux->loop;
+    1 while $self->cycle;
 }
 
 sub DEMOLISH {
     my $self = shift;
     $self->listener->shutdown;
-    $self->mux->close($self->listener);
-    $self->mux->endloop;
 }
 
 __PACKAGE__->meta->make_immutable;
