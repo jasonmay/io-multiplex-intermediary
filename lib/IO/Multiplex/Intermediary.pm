@@ -19,7 +19,6 @@ has read_set => (
 );
 
 sub _build_read_set {
-    warn "_build_read_set";
     my $self = shift;
     my $select = IO::Select->new($self->external_handle);
     $select->add($self->client_handle);
@@ -39,7 +38,6 @@ has external_handle => (
 );
 
 sub _build_external_handle {
-    warn "_build_external_handle";
     my $self   = shift;
     my $socket = IO::Socket::INET->new(
         LocalPort => $self->external_port,
@@ -94,7 +92,6 @@ has socket_info => (
 );
 
 sub id_lookup {
-    warn "id_lookup";
     my $self = shift;
     my $fh   = shift;
 
@@ -104,7 +101,6 @@ sub id_lookup {
 
 #TODO send backup info
 sub client_connect_event {
-    warn "client_connect_event";
     my $self = shift;
 
     if ( scalar(%{$self->filehandles}) ) {
@@ -124,7 +120,6 @@ sub client_connect_event {
 {
     my $du = Data::UUID->new;
     sub connect_event {
-        warn "connect_event";
         my $self = shift;
         my $fh = shift;
 
@@ -148,7 +143,6 @@ sub client_connect_event {
 }
 
 sub input_event {
-    warn "input_event";
     my $self  = shift;
     my $fh    = shift;
     my $input = shift;
@@ -164,7 +158,6 @@ sub input_event {
 }
 
 sub client_input_event {
-    warn "client_input_event";
     my $self = shift;
     my $input = shift;
     chomp($input);
@@ -219,7 +212,6 @@ sub client_disconnect_event {
 }
 
 sub send {
-    warn "send";
     my $self = shift;
     my $id = shift;
     my $data = shift;
@@ -228,7 +220,6 @@ sub send {
 }
 
 sub send_to_client {
-    warn "send_to_client";
 
     my $self   = shift;
     my $data   = shift;
@@ -249,7 +240,6 @@ sub cycle {
         }
         elsif ($fh == $self->client_handle) {
             if ($self->client_socket) {
-                warn '"nice try"';
                 $fh->accept->close;
             }
             else {
@@ -276,7 +266,6 @@ sub cycle {
                 close($fh);
             }
         }
-        #warn join(' ', $self->read_set->handles);
     }
 
     return 1;
