@@ -123,7 +123,7 @@ sub client_connect_event {
         my $self = shift;
         my $fh = shift;
 
-        if ($fh == $self->client_handle) {
+        if ($self->client_socket && $fh == $self->client_socket) {
             $self->client_connection;
             return;
         }
@@ -190,7 +190,6 @@ sub client_input_event {
             }
         }
     }
-
 }
 
 sub disconnect_event {
@@ -216,16 +215,15 @@ sub send {
     my $id = shift;
     my $data = shift;
 
-    print { $self->filehandles->{$id} } to_json($data);
+    $self->filehandles->{$id}->send( to_json($data) );
 }
 
 sub send_to_client {
-
     my $self   = shift;
     my $data   = shift;
 
-    return unless defined $self->client_handle;
-    print { $self->client_handle } to_json($data);
+    return unless $self->client_socket;
+    $self->client_socket->send(to_json($data) . "\n");
 }
 
 sub cycle {
@@ -246,8 +244,6 @@ sub cycle {
                 $self->client_socket( $fh->accept() );
                 $self->read_set->add($self->client_socket);
                 $self->client_connect_event($self->client_socket);
-
-                # no more listening necessary
             }
         }
         else {
@@ -256,7 +252,7 @@ sub cycle {
             }
             else {
                 $self->read_set->remove($fh);
-                if ($fh == $self->client_socket) {
+                if ($self->client_socket && $fh == $self->client_socket) {
                     $self->client_disconnect_event($fh);
                     $self->_clear_client_socket;
                 }

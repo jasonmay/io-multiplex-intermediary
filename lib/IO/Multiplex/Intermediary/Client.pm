@@ -47,7 +47,6 @@ sub connect_to_intermediary {
 
 }
 
-
 sub custom_startup { }
 
 # handle client input
