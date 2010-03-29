@@ -176,7 +176,7 @@ sub client_input_event {
             last unless $self->filehandles->{ $json->{data}->{id} };
 
             if ($json->{param} eq 'output') {
-                print { $self->filehandles->{ $json->{data}->{id} } } $json->{data}->{value};
+                $self->filehandles->{ $json->{data}->{id} }->send($json->{data}->{value});
                 if ($json->{updates}) {
                     foreach my $key  (%{ $json->{updates} }) {
                         my $value = $json->{updates}->{$key};
