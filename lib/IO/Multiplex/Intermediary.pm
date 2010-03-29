@@ -248,7 +248,13 @@ sub cycle {
         }
         else {
             if( my $buf = <$fh> ) {
-                $self->input_event($fh, $buf);
+                $buf =~ s/[\r\n]+$//;
+                if ($fh == $self->client_socket) {
+                    $self->client_input_event($buf);
+                }
+                else {
+                    $self->input_event($fh, $buf);
+                }
             }
             else {
                 $self->read_set->remove($fh);
