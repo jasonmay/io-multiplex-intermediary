@@ -386,6 +386,10 @@ Method called when a user sends data to the intermediary
 
 Method called when a user disconnects from the intermediary
 
+=item C<tick>
+
+Method that occurs on the second every second
+
 =back
 
 =head1 AUTHOR
