@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use IO::Multiplex::Intermediary;
 
-my $intermediary = IO::Multiplex::Intermediary->new;
+my $intermediary = IO::Multiplex::Intermediary->new(
+    external_port => (@ARGV ? $ARGV[0] : 6715),
+);
 
 $intermediary->run;
