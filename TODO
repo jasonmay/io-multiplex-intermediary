@@ -1,2 +1,4 @@
 TODO
- - Switch to IO::Multiplex
+ - Somehow go back to IO::Multiplex
+ - Send ticks to client
+ - Docs
