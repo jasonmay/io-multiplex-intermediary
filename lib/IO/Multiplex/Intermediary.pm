@@ -317,12 +317,75 @@ the controller reconnects, they will be welcomed back to the real
 interaction in any way that the developer who extends this module
 sees fit.
 
+The intermediary opens two ports: one for end users to connect to,
+and one for the application to connect to. The intermediary server
+and client use JSON to communicate with each other. Here is an example
+of the life cycle of the intermediary and application:
+
+            User land       |  Intermediary      |  Application
+                            |                    |
+            Connect         |                    |
+                            |  Accept user       |
+                            |  connection        |
+                            |                    |
+                            |  Send the          |
+                            |  connection        |
+                            |  action to         |
+                            |   the app          |
+                            |                    |  Receive
+                            |                    |  connection
+                            |                    |
+                            |                    |  Track any
+                            |                    |  user data
+                            |                    |
+            User sends      |                    |
+            something       |                    |
+                            | Read the message   |
+                            |                    |
+                            | Send the message   |
+                            | to the app         |
+                            |                    |  Read the message
+                            |                    |
+                            |                    |  Process the message
+                            |                    |  (build_response)
+                            |                    |
+                            |                    |  Send the response
+                            |  Get the response  |
+                            |                    |
+                            |  Send the response |
+                            |  to the appropriate|
+                            |  user              |
+           Disconnect       |                    |
+                            |  Send the discon.  |
+                            |  message to the    |
+                            |  intermediary      |
+                            |                    |  Become aware of
+                            |                    |  the disconnect
+                            |                    |  and act
+                            |                    |  accordingly
+
+=head1 EXAMPLES
+
 B<NOTE>: Examples are in the examples/ directory supplied with the
 distribution.
 
+=head1 PARAMETERS FOR C<new>
+
+=over
+
+=item C<external_port>
+
+This is the port that the end users will use to access the application.
+If it is not specified, the default is 6715.
+
+=item C<client_port>
+
+This is the port that intermediary will use to communicate internally
+with the application.
+
 =head1 METHODS
 
-=over 
+=over
 
 =item C<send($id, $data)>
 
