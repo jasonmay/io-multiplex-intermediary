@@ -230,9 +230,9 @@ sub send_to_client {
 
 sub cycle {
     my $self = shift;
-    my ($fh_set) = IO::Select->select( $self->read_set, undef, undef, 0);
+    my @ready = $self->read_set->can_read;
 
-    foreach my $fh (@$fh_set) {
+    foreach my $fh (@ready) {
         next unless $self->external_handle;
         next unless $self->client_handle;
 
