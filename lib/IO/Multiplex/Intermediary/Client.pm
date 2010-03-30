@@ -150,9 +150,7 @@ sub cycle {
     my $self = shift;
 
     my $buf;
-    warn "get ready to RECV";
     $self->socket->recv($buf, 1024);
-    warn "here: $buf!!";
     return 0 unless $buf;
 
     $self->parse_input($buf);
@@ -203,7 +201,6 @@ IO::MUlltiplex::Intermediary::Client - base controller for the server
         my $orig = shift;
         my $self = shift;
 
-        warn "input has occurred";
         return $self->$orig(@_);
     };
 
