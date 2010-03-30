@@ -164,19 +164,69 @@ sub run {
     1 while $self->cycle;
 }
 
+__PACKAGE__->meta->make_immutable;
+
+1;
+
+__END__
+
 =head1 NAME
 
-IO::Multiplex::Intermediary::Client - client logic
+IO::MUlltiplex::Intermediary::Client - base controller for the server
 
 =head1 SYNOPSIS
 
-  my $client = IO::Multiplex::Intermediary::Client->new;
+    package Controller;
+    use Moose;
+    extends 'IO::Multiplex::Intermediary';
+
+    around build_response => sub {
+        my $orig = shift;
+        my $self = shift;
+
+        my $response = $self->$orig(@_);
+
+        return rot13($response);
+    };
+
+    around connect_hook => sub {
+        my $orig = shift;
+        my $self = shift;
+        my $data = shift;
+
+        $players{ $data->{data}{id} } = new_player;
+
+        return $self->$orig(@_);
+    };
+
+    around input_hook => sub {
+        my $orig = shift;
+        my $self = shift;
+
+        warn "input has occurred";
+        return $self->$orig(@_);
+    };
+
+    around disconnect_hook => sub {
+        my $orig   = shift;
+        my $self   = shift;
+        my $data   = shift;
+
+        my $id = $data->{data}->{id};
+        my $player = delete $self->universe->players->{$id};
+
+        return $self->$orig($data, @_);
+    };
 
 =head1 DESCRIPTION
 
-The flow of the controller starts when a player sends a command.
-The controller figures out who sent the command and relays it to
-the logic that reads the command and comes up with a response (Game).
+B<WARNING! THIS MODULE HAS BEEN DEEMED ALPHA BY THE AUTHOR. THE API
+MAY CHANGE IN SUBSEQUENT VERSIONS.>
+
+The flow of the controller starts when a end connection sends a
+command.  The controller figures out who sent the command and relays
+it to the logic that reads the command and comes up with a response
+(Application).
 
    Connections
        |
@@ -197,11 +247,11 @@ the logic that reads the command and comes up with a response (Game).
 
 =item host
 
-This attribute is for the host the server runs on.
+This attribute is for the host on which the server runs.
 
 =item port
 
-This attribute is for the host the server runs on.
+This attribute is for the host on which the server runs on.
 
 =back
 
@@ -214,9 +264,3 @@ This attribute is for the host the server runs on.
 =item send
 
 =back
-
-=cut
-
-__PACKAGE__->meta->make_immutable;
-
-1;

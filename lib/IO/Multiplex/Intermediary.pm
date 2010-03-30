@@ -291,3 +291,30 @@ sub run {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+__END__
+
+=head1 NAME
+
+IO::MUlltiplex::Intermediary - multiplexing with fault tolerance
+
+=head1 SYNOPSIS
+
+    use IO::Multiplex::Intermediary;
+
+    my $intermediary = IO::Multiplex::Intermediary->new;
+
+    $intermediary->run;
+
+=head1 DESCRIPTION
+
+B<WARNING! THIS MODULE HAS BEEN DEEMED ALPHA BY THE AUTHOR. THE API
+MAY CHANGE IN SUBSEQUENT VERSIONS.>
+
+This module is for users who want to optimize user experience. It
+keeps the external connection operations and application operations
+separate as separate processes, so that if the application crashes.
+
+The core is robust in its simplicity. If the application crashes,
+the end users on the external side will not 
+
