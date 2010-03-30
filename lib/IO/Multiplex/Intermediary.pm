@@ -91,13 +91,6 @@ has socket_info => (
     default => sub { +{} },
 );
 
-has remaining_usecs => (
-    is      => 'rw',
-    isa     => 'Int',
-    default => 1_000_000,
-);
-
-
 sub id_lookup {
     my $self = shift;
     my $fh   = shift;
@@ -235,19 +228,9 @@ sub send_to_client {
     $self->client_socket->send(to_json($data) . "\n");
 }
 
-sub tick {
-    #stub
-}
-
 sub cycle {
     my $self = shift;
-    my ($fh_set) = IO::Select->select(
-        $self->read_set,
-        undef, undef,
-        $self->remaining_usecs / 1_000_000
-    );
-
-    my $usec_set = 0;
+    my ($fh_set) = IO::Select->select( $self->read_set, undef, undef, 0);
 
     foreach my $fh (@$fh_set) {
         next unless $self->external_handle;
@@ -293,12 +276,6 @@ sub cycle {
         }
     }
 
-    my ($secs, $usecs)      = gettimeofday;
-    my $remaining =   1_000_000 - $usecs;
-    $remaining    ||= 1_000_000;
-    $self->remaining_usecs($remaining);
-
-    $self->tick unless @$fh_set;
     return 1;
 }
 

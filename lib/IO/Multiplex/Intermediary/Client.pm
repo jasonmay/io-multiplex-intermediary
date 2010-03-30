@@ -4,6 +4,8 @@ use Moose;
 use namespace::autoclean;
 
 use IO::Socket;
+use IO::Select;
+use Time::HiRes qw(gettimeofday);
 use JSON;
 
 local $| = 1;
@@ -39,6 +41,26 @@ has port => (
     lazy    => 1,
     default => 9000
 );
+
+has read_set => (
+    is         => 'ro',
+    isa        => 'IO::Select',
+    lazy_build => 1,
+);
+
+has remaining_usecs => (
+    is      => 'rw',
+    isa     => 'Int',
+    default => 1_000_000,
+);
+
+sub _build_read_set {
+    my $self = shift;
+    my $select = IO::Select->new;
+
+    $select->add($self->socket);
+    return $select;
+}
 
 sub parse_input {
     my $self  = shift;
@@ -146,14 +168,30 @@ sub send {
     );
 }
 
+sub tick {
+    # stub
+}
+
 sub cycle {
     my $self = shift;
 
-    my $buf;
-    $self->socket->recv($buf, 1024);
-    return 0 unless $buf;
+    my $sec_fraction = $self->remaining_usecs / 1_000_000;
+    my @sockets_available = $self->read_set->can_read($sec_fraction);
+    foreach my $fh (@sockets_available) {
+        my $buf = <$fh>;
+        return 0 unless defined $buf;
 
-    $self->parse_input($buf);
+        $self->parse_input($buf);
+    }
+
+    my ($secs, $usecs) = gettimeofday;
+    my $remaining      =   1_000_000 - $usecs;
+
+    $remaining ||= 1_000_000;
+    $self->remaining_usecs($remaining);
+
+    $self->tick unless @sockets_available;
+
     return 1;
 }
 
