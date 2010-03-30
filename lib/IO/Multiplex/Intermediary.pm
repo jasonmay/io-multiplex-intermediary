@@ -9,7 +9,6 @@ use Scalar::Util    qw(reftype);
 use IO::Socket;
 use IO::Select;
 use Data::UUID;
-use Data::Dumper;
 use Time::HiRes qw(gettimeofday);
 use JSON;
 
