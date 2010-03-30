@@ -312,5 +312,65 @@ keeps the external connection operations and application operations
 separate as separate processes, so that if the application crashes.
 
 The core is robust in its simplicity. If the application crashes,
-the end users on the external side will not 
+the end users on the external side will not be disconnected. When
+the controller reconnects, they will be welcomed back to the real
+interaction in any way that the developer who extends this module
+sees fit.
 
+B<NOTE>: Examples are in the examples/ directory supplied with the
+distribution.
+
+=head1 METHODS
+
+=over 
+
+=item C<send($id, $data)>
+
+Sends C<$data> (string format) to the socket that belongs to C<$id>
+
+=back
+
+=head1 HOOKS
+
+These methods are NOT for complete overriding. They do important
+things that involve communication with the client. They are here
+so that you can hook I<around> these methods in any way you see fit.
+
+=over
+
+=item C<client_connect_event>
+
+Method called when the client connects to the intermediary
+
+=item C<client_input_event>
+
+Method called when the client sends data to the intermediary
+
+=item C<client_disconnect_event>
+
+Method called when the client disconnects from the intermediary
+
+=item C<connect_event>
+
+Method called when a user connects to the intermediary
+
+=item C<input_event>
+
+Method called when a user sends data to the intermediary
+
+=item C<disconnect_event>
+
+Method called when a user disconnects from the intermediary
+
+=back
+
+=head1 AUTHOR
+
+Jason May <jason.a.may@gmail.com>
+
+=head1 LICENSE
+
+This library is free software and may be distributed under the same
+terms as perl itself.
+
+=cut

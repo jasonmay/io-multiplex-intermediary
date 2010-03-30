@@ -264,3 +264,14 @@ This attribute is for the host on which the server runs on.
 =item send
 
 =back
+
+=head1 AUTHOR
+
+Jason May <jason.a.may@gmail.com>
+
+=head1 LICENSE
+
+This library is free software and may be distributed under the same
+terms as perl itself.
+
+=cut
