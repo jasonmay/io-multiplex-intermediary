@@ -280,11 +280,11 @@ it to the logic that reads the command and comes up with a response
 
 =over
 
-=item host
+=item C<host>
 
 This attribute is for the host on which the server runs.
 
-=item port
+=item C<port>
 
 This attribute is for the host on which the server runs on.
 
@@ -294,9 +294,53 @@ This attribute is for the host on which the server runs on.
 
 =over
 
-=item run
+=item C<run>
 
-=item send
+Starts the client, which connects to the intermediary and waits for
+input to respond to.
+
+=item C<send($id, $message)>
+
+Tells the intermediary to output C<$message> to the user with the ID
+C<$id>.
+
+=back
+
+=head1 HOOKS
+
+internal methods with the primary purposes of hooking from the outside
+for a more flexible and extensive use.
+
+=over
+
+=item C<build_response>
+
+This hook is a method that you want to hook for doing your response
+handling and output manipulateion (see the L<SYNOPSIS> section).  As the
+method stands, C<build_response> returns exactly what was input to
+the method, making the application a simple echo server.
+
+=item C<connect_hook>
+
+This hook runs after a user connects. It returns JSON data that
+tells the intermediary that it has acknowledge the user has
+connected.
+
+=item C<input_hook>
+
+This hook runs after the intermediary sends an input request. It
+returns a JSON output request which contains the response build by
+C<build_response>.
+
+=item C<disconnect_hook>
+
+This hook runs after a user disconnects. It has the same behavior
+as the C<connect_hook> method, just with disconnect information.
+
+=item C<tick>
+
+This hook runs on the second every second. By itself, it is does
+not do anything. Hooking from other applications is its only purpose.
 
 =back
 
