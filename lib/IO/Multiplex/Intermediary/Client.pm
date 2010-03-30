@@ -1,18 +1,30 @@
 #!perl
 package IO::Multiplex::Intermediary::Client;
-use IO::Socket;
-use POE qw(Component::Client::TCP Wheel::ReadWrite);
 use Moose;
 use namespace::autoclean;
+
+use IO::Socket;
 use JSON;
 
 local $| = 1;
 
 has socket => (
-    is       => 'rw',
-    isa      => 'POE::Wheel::ReadWrite',
-    clearer  => 'clear_socket',
+    is         => 'rw',
+    isa        => 'IO::Socket::INET',
+    lazy_build => 1,
+    clearer    => 'clear_socket',
 );
+
+sub _build_socket {
+    my $self = shift;
+    my $socket = IO::Socket::INET->new(
+        PeerAddr => $self->host,
+        PeerPort => $self->port,
+        Proto    => 'tcp',
+    ) or die $!;
+
+    return $socket;
+}
 
 has host => (
     is      => 'ro',
@@ -28,45 +40,12 @@ has port => (
     default => 9000
 );
 
-sub BUILD {
-    my $self = shift;
-   $self->connect_to_intermediary;
-   $self->custom_startup(@_);
-}
+sub parse_input {
+    my $self  = shift;
+    my $input = shift;
 
-# start the server
-sub connect_to_intermediary {
-    my ($self) = @_;
-    POE::Component::Client::TCP->new(
-        RemoteAddress   => $self->host,
-        RemotePort      => $self->port,
-        Connected       => sub { $self->_server_connect(@_) },
-        Disconnected    => sub { $self->_server_disconnect(@_) },
-        ServerInput     => sub { $self->_server_input(@_) },
-    );
-
-}
-
-sub custom_startup { }
-
-# handle client input
-sub _server_input {
-    my $self = shift;
-    my ($input) = $_[ARG0];
     $input =~ s/[\r\n]*$//;
-    $_[HEAP]{server}->put($self->parse_json($input));
-};
-
-# handle client input
-sub _server_connect {
-    my $self = shift;
-    $self->socket($_[HEAP]{server});
-};
-
-sub _server_disconnect {
-    my $self = shift;
-    $self->clear_socket;
-    delete $_[HEAP]{server};
+    $self->socket->send( $self->parse_json($input) . "\n");
 };
 
 sub build_response {
@@ -143,36 +122,46 @@ sub force_disconnect {
     my $id = shift;
     my %args = @_;
 
-    $self->socket->put(to_json(
-        {
+    $self->socket->send(to_json +{
             param => 'disconnect',
             data => {
                 id => $id,
                 %args,
             }
         }
-    ));
+    );
 }
 
 sub send {
     my $self = shift;
     my ($id, $message) = @_;
 
-    $self->socket->put(to_json(
-        {
+    $self->socket->send(to_json +{
             param => 'output',
             data => {
                 value => $message,
                 id => $id,
             }
         }
-    ));
+    );
 }
 
+sub cycle {
+    my $self = shift;
+
+    my $buf;
+    warn "get ready to RECV";
+    $self->socket->recv($buf, 1024);
+    warn "here: $buf!!";
+    return 0 unless $buf;
+
+    $self->parse_input($buf);
+    return 1;
+}
 
 sub run {
     my $self = shift;
-    POE::Kernel->run();
+    1 while $self->cycle;
 }
 
 =head1 NAME
@@ -221,8 +210,6 @@ This attribute is for the host the server runs on.
 =over
 
 =item run
-
-=item custom_startup
 
 =item send
 

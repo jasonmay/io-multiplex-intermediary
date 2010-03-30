@@ -123,7 +123,9 @@ sub client_connect_event {
         my $self = shift;
         my $fh = shift;
 
-        if ($self->client_socket && $fh == $self->client_socket) {
+        return unless $self->client_socket;
+
+        if ($fh == $self->client_socket) {
             $self->client_connection;
             return;
         }
@@ -231,6 +233,9 @@ sub cycle {
     my ($fh_set) = IO::Select->select($self->read_set, undef, undef, 0);
 
     foreach my $fh (@$fh_set) {
+        next unless $self->external_handle;
+        next unless $self->client_handle;
+
         if ($fh == $self->external_handle) {
             my $socket = $fh->accept();
             $self->read_set->add($socket);
@@ -247,6 +252,11 @@ sub cycle {
             }
         }
         else {
+            warn $self->client_socket;
+            warn $self->client_handle;
+            warn $self->external_handle;
+            warn $fh;
+
             if( my $buf = <$fh> ) {
                 $buf =~ s/[\r\n]+$//;
                 if ($fh == $self->client_socket) {
