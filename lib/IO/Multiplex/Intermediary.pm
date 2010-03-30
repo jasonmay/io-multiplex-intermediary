@@ -252,10 +252,6 @@ sub cycle {
             }
         }
         else {
-            warn $self->client_socket;
-            warn $self->client_handle;
-            warn $self->external_handle;
-            warn $fh;
 
             if( my $buf = <$fh> ) {
                 $buf =~ s/[\r\n]+$//;
