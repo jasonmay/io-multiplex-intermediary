@@ -276,6 +276,9 @@ it to the logic that reads the command and comes up with a response
 
 =head1 ATTRIBUTES
 
+This module supplies you with these attributes which you can pass to
+the constructor as named arguments:
+
 =over
 
 =item C<host>
