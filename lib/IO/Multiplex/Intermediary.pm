@@ -310,15 +310,17 @@ IO::Mulltiplex::Intermediary - multiplexing with fault tolerance
 B<WARNING! THIS MODULE HAS BEEN DEEMED ALPHA BY THE AUTHOR. THE API
 MAY CHANGE IN SUBSEQUENT VERSIONS.>
 
-This module is for users who want to optimize user experience. It
+This library is for users who want to optimize user experience. It
 keeps the external connection operations and application operations
 separate as separate processes, so that if the application crashes.
 
-The core is robust in its simplicity. If the application crashes,
-the end users on the external side will not be disconnected. When
-the controller reconnects, they will be welcomed back to the real
-interaction in any way that the developer who extends this module
-sees fit.
+The core is robust in its simplicity. The library is meant for your
+application to extend the L<IO::Multiplex::Intermediary::Client>
+module that ships with this distribution and use its hooks. If the
+application crashes, the end users on the external side will not
+be disconnected. When the controller reconnects, the users will be
+welcomed back to the real interaction in any way that the developer
+who extends this module sees fit.
 
 The intermediary opens two ports: one for end users to connect to,
 and one for the application to connect to. The intermediary server

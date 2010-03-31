@@ -258,7 +258,7 @@ IO::Mulltiplex::Intermediary::Client - base controller for the server
 B<WARNING! THIS MODULE HAS BEEN DEEMED ALPHA BY THE AUTHOR. THE API
 MAY CHANGE IN SUBSEQUENT VERSIONS.>
 
-The flow of the controller starts when a end connection sends a
+The flow of the controller starts when an end connection sends a
 command.  The controller figures out who sent the command and relays
 it to the logic that reads the command and comes up with a response
 (Application).
