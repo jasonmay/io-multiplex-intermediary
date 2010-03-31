@@ -295,7 +295,7 @@ __END__
 
 =head1 NAME
 
-IO::MUlltiplex::Intermediary - multiplexing with fault tolerance
+IO::Mulltiplex::Intermediary - multiplexing with fault tolerance
 
 =head1 SYNOPSIS
 
