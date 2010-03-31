@@ -314,7 +314,7 @@ the outside for a more flexible and extensive use.
 =item C<build_response>
 
 This hook is a method that you want to hook for doing your response
-handling and output manipulateion (see the L<SYNOPSIS> section).  As the
+handling and output manipulateion (see the L</SYNOPSIS> section).  As the
 method stands, C<build_response> returns exactly what was input to
 the method, making the application a simple echo server.
 
