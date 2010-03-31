@@ -432,6 +432,14 @@ Method called when a user disconnects from the intermediary
 
 =back
 
+=head1 SEE ALSO
+
+=over
+
+=item L<IO::Multiplex>
+
+=back
+
 =head1 AUTHOR
 
 Jason May <jason.a.may@gmail.com>
