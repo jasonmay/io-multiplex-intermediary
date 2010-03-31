@@ -208,7 +208,7 @@ __END__
 
 =head1 NAME
 
-IO::MUlltiplex::Intermediary::Client - base controller for the server
+IO::Mulltiplex::Intermediary::Client - base controller for the server
 
 =head1 SYNOPSIS
 
