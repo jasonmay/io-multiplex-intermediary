@@ -18,4 +18,6 @@ requires 'JSON';
 
 test_requires 'Test::More';
 
+install_script 'bin/intermediary.pl';
+
 WriteAll;
