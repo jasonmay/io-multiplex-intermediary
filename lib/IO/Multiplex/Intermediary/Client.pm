@@ -247,9 +247,7 @@ IO::Mulltiplex::Intermediary::Client - base controller for the server
         my $self   = shift;
         my $data   = shift;
 
-        my $id = $data->{data}->{id};
-        my $player = delete $self->universe->players->{$id};
-
+        delete $player{ $data->{data}{id} };
         return $self->$orig($data, @_);
     };
 
@@ -308,8 +306,8 @@ C<$id>.
 
 =head1 HOOKS
 
-internal methods with the primary purposes of hooking from the outside
-for a more flexible and extensive use.
+These are internal methods with the primary purposes of hooking from
+the outside for a more flexible and extensive use.
 
 =over
 
