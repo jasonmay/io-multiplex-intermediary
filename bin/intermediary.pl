@@ -8,3 +8,17 @@ my $intermediary = IO::Multiplex::Intermediary->new(
 );
 
 $intermediary->run;
+
+__END__
+
+=head1 NAME
+
+intermediary.pl - runs an intermediary instnace
+
+=head1 DESCRIPTION
+
+This script is associated with the Perl module L<IO::Multiplex::Intermediary>.
+
+=head1 USAGE
+
+  intermediary.pl <port>
