@@ -258,7 +258,7 @@ sub cycle {
 
             if( my $buf = <$fh> ) {
                 $buf =~ s/[\r\n]+$//;
-                if ($fh == $self->client_socket) {
+                if ($self->client_socket && $fh == $self->client_socket) {
                     $self->client_input_event($buf);
                 }
                 else {
