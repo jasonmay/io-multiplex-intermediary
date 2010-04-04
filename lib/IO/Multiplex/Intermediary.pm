@@ -8,7 +8,6 @@ use namespace::autoclean;
 
 use List::Util      qw(first);
 use List::MoreUtils qw(any);
-use Scalar::Util    qw(reftype);
 use IO::Socket;
 use IO::Select;
 use Data::UUID;
@@ -177,7 +176,7 @@ sub client_input_event {
         }
         else {
             last unless my $id = $json->{data}{id};
-            last unless reftype($self->filehandles);
+            last unless ref $self->filehandles;
             last unless $self->filehandles->{$id};
 
             if ($json->{param} eq 'output') {
