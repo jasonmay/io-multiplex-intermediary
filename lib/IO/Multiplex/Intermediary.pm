@@ -173,24 +173,24 @@ sub client_input_event {
             warn "JSON error: $@";
         }
         elsif (!exists $json->{param}) {
-            warn "Invalid JSON structure!";
+            warn "Invalid JSON structue!";
         }
         else {
-            last unless $json->{data}->{id};
+            last unless my $id = $json->{data}{id};
             last unless reftype($self->filehandles);
-            last unless $self->filehandles->{ $json->{data}->{id} };
+            last unless $self->filehandles->{$id};
 
             if ($json->{param} eq 'output') {
-                $self->filehandles->{ $json->{data}->{id} }->send($json->{data}->{value});
+                $self->filehandles->{$id}->send($json->{data}{value});
                 if ($json->{updates}) {
                     foreach my $key  (%{ $json->{updates} }) {
-                        my $value = $json->{updates}->{$key};
-                        $self->socket_info->{ $json->{data}->{id} }->{ $key } = $value
+                        my $value = $json->{updates}{$key};
+                        $self->socket_info->{$id}{$key} = $value
                     }
                 }
             }
             elsif ($json->{param} eq 'disconnect') {
-                my $id = $json->{data}->{id};
+                my $id = $json->{data}{id};
                 $self->filehandles->{$id}->shutdown_output;
             }
         }
