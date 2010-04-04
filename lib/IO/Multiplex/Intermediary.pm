@@ -173,7 +173,7 @@ sub client_input_event {
             warn "JSON error: $@";
         }
         elsif (!exists $json->{param}) {
-            warn "Invalid JSON structue!";
+            warn "Invalid JSON structure!";
         }
         else {
             last unless my $id = $json->{data}{id};
