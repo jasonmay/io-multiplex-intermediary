@@ -10,6 +10,7 @@ use List::Util      qw(first);
 use List::MoreUtils qw(any);
 use IO::Socket;
 use IO::Select;
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 use Data::UUID;
 use Time::HiRes qw(gettimeofday);
 use JSON;
@@ -47,6 +48,8 @@ sub _build_external_handle {
         Listen    => 5,
         Reuse     => 1,
     ) or die $!;
+    my $sflags = fcntl($socket, F_GETFL, 0);
+    fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
     $socket->autoflush(1);
     return $socket;
 }
@@ -72,6 +75,8 @@ sub _build_client_handle {
         Listen    => 5,
         Reuse     => 1,
     );
+    my $sflags = fcntl($socket, F_GETFL, 0);
+    fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
     $socket->autoflush(1);
 
     return $socket;
@@ -99,6 +104,7 @@ sub id_lookup {
     my $self = shift;
     my $fh   = shift;
 
+    #warn join ' ', map { substr($_, 0, 8) } keys %{ $self->filehandles };
     return first { $self->filehandles->{$_} == $fh }
            keys %{ $self->filehandles };
 }
@@ -172,7 +178,6 @@ sub client_input_event {
 
     {
         if ($@ || !$json) {
-            warn $input;
             warn "JSON error: $@";
         }
         elsif (!exists $json->{param}) {
@@ -237,16 +242,35 @@ sub send_to_client {
     $self->client_socket->send("$output\n\e");
 }
 
+#sub foo {
+#    my $self = shift;
+#    my @sockets = @_;
+#
+#    return join(' ',
+#        map {
+#            if ($_ == $self->external_handle) { 'external' }
+#            elsif ($_ == $self->client_handle) { 'client' }
+#            elsif ($_ == $self->client_socket) { 'client_socket' }
+#            else { 'player ' . substr($self->id_lookup($_), 0, 8) }
+#        } @sockets
+#    );
+#}
+
 sub cycle {
     my $self = shift;
 
-    CYCLE: foreach my $fh ($self->read_set->can_read) {
+    my @ready;
+    CYCLE: foreach my $fh (@ready = $self->read_set->can_read) {
+        #warn $self->foo(@ready);
+
         #warn "begin loop";
         next unless $self->external_handle;
         next unless $self->client_handle;
 
         if ($fh == $self->external_handle) {
             my $socket = $fh->accept();
+            my $sflags = fcntl($socket, F_GETFL, 0);
+            fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
             $self->read_set->add($socket);
             $self->connect_event($socket);
         }
@@ -261,8 +285,9 @@ sub cycle {
             }
         }
         else {
-            if(my $buf = <$fh>) {
-                #my $buf = <$fh>;
+            my $buf = <$fh>;
+            next unless defined $buf;
+            if ($buf ne '0') {
                 next unless $self->client_socket;
                 $buf =~ s/[\r\n]+$//s;
                 #warn "!!!!\n\n$buf\n\n!!!";
@@ -273,8 +298,7 @@ sub cycle {
                 else {
                     $self->input_event($fh, $buf);
                 }
-                #jwarn "redo";
-                #jredo CYCLE;
+                redo CYCLE;
             }
             else {
                 if ($self->client_socket && $fh == $self->client_socket) {
