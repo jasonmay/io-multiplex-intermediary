@@ -66,8 +66,12 @@ sub parse_input {
     my $self  = shift;
     my $input = shift;
 
-    $input =~ s/[\r\n]*$//;
-    $self->socket->send( $self->parse_json($input) . "\n");
+    $input =~ s/[\r\n]*$//s;
+    my @inputs = grep { $_ } split /\e/m, $input;
+    for (@inputs) {
+        my $output = $self->parse_json($_);
+        $self->socket->send("$output\n\e");
+    }
 };
 
 sub build_response {
@@ -144,28 +148,31 @@ sub force_disconnect {
     my $id = shift;
     my %args = @_;
 
-    $self->socket->send(to_json +{
-            param => 'disconnect',
-            data => {
-                id => $id,
-                %args,
-            }
+    my $output = to_json +{
+        param => 'disconnect',
+        data => {
+            id => $id,
+            %args,
         }
-    );
+    };
+
+    $self->socket->send("$output\n\e");
 }
 
 sub send {
     my $self = shift;
     my ($id, $message) = @_;
 
-    $self->socket->send(to_json +{
-            param => 'output',
-            data => {
-                value => $message,
-                id => $id,
-            }
+    my $output = to_json +{
+        param => 'output',
+        data => {
+            value => $message,
+            id => $id,
         }
-    );
+    };
+
+    #warn "[C Sends]: $output";
+    $self->socket->send("$output\n\e");
 }
 
 sub tick {
@@ -180,7 +187,6 @@ sub cycle {
     foreach my $fh (@sockets_available) {
         my $buf = <$fh>;
         return 0 unless defined $buf;
-
         $self->parse_input($buf);
     }
 

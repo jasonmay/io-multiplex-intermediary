@@ -47,6 +47,7 @@ sub _build_external_handle {
         Listen    => 5,
         Reuse     => 1,
     ) or die $!;
+    $socket->autoflush(1);
     return $socket;
 }
 
@@ -71,6 +72,7 @@ sub _build_client_handle {
         Listen    => 5,
         Reuse     => 1,
     );
+    $socket->autoflush(1);
 
     return $socket;
 }
@@ -125,6 +127,9 @@ sub client_connect_event {
         my $self = shift;
         my $fh = shift;
 
+        my $id = $du->create_str;
+        $self->filehandles->{$id} = $fh;
+
         return unless $self->client_socket;
 
         if ($fh == $self->client_socket) {
@@ -132,9 +137,6 @@ sub client_connect_event {
             return;
         }
 
-        my $id = $du->create_str;
-
-        $self->filehandles->{$id} = $fh;
 
         my $data = {
             param => 'connect',
@@ -165,10 +167,12 @@ sub client_input_event {
     my $self = shift;
     my $input = shift;
     chomp($input);
+    return unless $input;
     my $json = eval { from_json($input) };
 
     {
         if ($@ || !$json) {
+            warn $input;
             warn "JSON error: $@";
         }
         elsif (!exists $json->{param}) {
@@ -180,7 +184,8 @@ sub client_input_event {
             last unless $self->filehandles->{$id};
 
             if ($json->{param} eq 'output') {
-                $self->filehandles->{$id}->send($json->{data}{value});
+                eval { $self->filehandles->{$id}->send($json->{data}{value}) }
+                    or last;
                 if ($json->{updates}) {
                     foreach my $key  (%{ $json->{updates} }) {
                         my $value = $json->{updates}{$key};
@@ -190,7 +195,7 @@ sub client_input_event {
             }
             elsif ($json->{param} eq 'disconnect') {
                 my $id = $json->{data}{id};
-                $self->filehandles->{$id}->shutdown_output;
+                $self->filehandles->{$id}->close;
             }
         }
     }
@@ -227,14 +232,16 @@ sub send_to_client {
     my $data   = shift;
 
     return unless $self->client_socket;
-    $self->client_socket->send(to_json($data) . "\n");
+    my $output = to_json $data;
+    #warn "[I Sends]: $output";
+    $self->client_socket->send("$output\n\e");
 }
 
 sub cycle {
     my $self = shift;
-    my @ready = $self->read_set->can_read;
 
-    foreach my $fh (@ready) {
+    CYCLE: foreach my $fh ($self->read_set->can_read) {
+        #warn "begin loop";
         next unless $self->external_handle;
         next unless $self->client_handle;
 
@@ -254,27 +261,31 @@ sub cycle {
             }
         }
         else {
-
-            if( my $buf = <$fh> ) {
+            if(my $buf = <$fh>) {
+                #my $buf = <$fh>;
                 next unless $self->client_socket;
-                $buf =~ s/[\r\n]+$//;
+                $buf =~ s/[\r\n]+$//s;
+                #warn "!!!!\n\n$buf\n\n!!!";
                 if ($fh == $self->client_socket) {
-                    $self->client_input_event($buf);
+                    my @packets = grep { $_ } split m[\e], $buf;
+                    $self->client_input_event($_) for @packets;
                 }
                 else {
                     $self->input_event($fh, $buf);
                 }
+                #jwarn "redo";
+                #jredo CYCLE;
             }
             else {
-                $self->read_set->remove($fh);
                 if ($self->client_socket && $fh == $self->client_socket) {
                     $self->client_disconnect_event($fh);
                     $self->_clear_client_socket;
                 }
                 else {
                     $self->disconnect_event($fh);
+                    $self->read_set->remove($fh);
+                    delete $self->filehandles->{$fh};
                 }
-                close($fh);
             }
         }
     }
