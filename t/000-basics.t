@@ -9,13 +9,13 @@ BEGIN {
 }
 
 # ::Intermediary methods
-can_ok ('IO::Multiplex::Intermediary', 'client_connect_event');
-can_ok ('IO::Multiplex::Intermediary', 'client_input_event');
-can_ok ('IO::Multiplex::Intermediary', 'client_disconnect_event');
+can_ok ('IO::Multiplex::Intermediary', 'client_connect');
+can_ok ('IO::Multiplex::Intermediary', 'client_input');
+can_ok ('IO::Multiplex::Intermediary', 'client_disconnect');
 
-can_ok ('IO::Multiplex::Intermediary', 'connect_event');
-can_ok ('IO::Multiplex::Intermediary', 'input_event');
-can_ok ('IO::Multiplex::Intermediary', 'disconnect_event');
+can_ok ('IO::Multiplex::Intermediary', 'connect');
+can_ok ('IO::Multiplex::Intermediary', 'input');
+can_ok ('IO::Multiplex::Intermediary', 'disconnect');
 
 can_ok ('IO::Multiplex::Intermediary', 'send');
 
