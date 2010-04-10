@@ -3,56 +3,30 @@ package IO::Multiplex::Intermediary;
 
 our $VERSION = "0.02";
 
-use Moose;
+use MooseX::POE;
 use namespace::autoclean;
 
-use List::Util      qw(first);
-use List::MoreUtils qw(any);
-use IO::Socket;
-use IO::Select;
-use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
-use Data::UUID;
-use Time::HiRes qw(gettimeofday);
 use JSON;
+use List::MoreUtils qw(any);
+use Scalar::Util qw(reftype);
 
-has read_set => (
-    is         => 'ro',
-    isa        => 'IO::Select',
-    lazy_build => 1,
+use POE qw(
+    Wheel::SocketFactory
+    Component::Server::TCP
+    Wheel::ReadWrite
+    Filter::Stream
 );
-
-sub _build_read_set {
-    my $self = shift;
-    my $select = IO::Select->new($self->external_handle);
-    $select->add($self->client_handle);
-    return $select;
-}
 
 has filehandles => (
-    is      => 'ro',
-    isa     => 'HashRef[IO::Socket::INET]',
+    is  => 'rw',
+    isa => 'POE::Wheel::SocketFactory',
+);
+
+has rw_set => (
+    is => 'rw',
+    isa => 'HashRef[Int]',
     default => sub { +{} },
 );
-
-has external_handle => (
-    is         => 'ro',
-    isa        => 'IO::Socket::INET',
-    lazy_build => 1,
-);
-
-sub _build_external_handle {
-    my $self   = shift;
-    my $socket = IO::Socket::INET->new(
-        LocalPort => $self->external_port,
-        Proto     => 'tcp',
-        Listen    => 5,
-        Reuse     => 1,
-    ) or die $!;
-    my $sflags = fcntl($socket, F_GETFL, 0);
-    fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
-    $socket->autoflush(1);
-    return $socket;
-}
 
 has external_port => (
     is  => 'ro',
@@ -60,32 +34,9 @@ has external_port => (
     default => 6715
 );
 
-has client_handle => (
-    is         => 'rw',
-    isa        => 'Maybe[IO::Socket::INET]',
-    lazy_build => 1,
-);
-
-sub _build_client_handle {
-    my $self = shift;
-
-    my $socket = IO::Socket::INET->new(
-        LocalPort => $self->client_port,
-        Proto     => 'tcp',
-        Listen    => 5,
-        Reuse     => 1,
-    );
-    my $sflags = fcntl($socket, F_GETFL, 0);
-    fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
-    $socket->autoflush(1);
-
-    return $socket;
-}
-
 has client_socket => (
-    is         => 'rw',
-    isa        => 'Maybe[IO::Socket::INET]',
-    clearer    => '_clear_client_socket',
+    is      => 'rw',
+    isa     => 'POE::Wheel::ReadWrite',
 );
 
 has client_port => (
@@ -96,25 +47,37 @@ has client_port => (
 
 has socket_info => (
     is  => 'rw',
-    isa => 'HashRef',
+    isa => 'HashRef[Int]',
     default => sub { +{} },
 );
 
-sub id_lookup {
-    my $self = shift;
-    my $fh   = shift;
+sub _client_start {
+    my ($self) = @_;
+    $self->filehandles(
+        POE::Wheel::SocketFactory->new(
+            BindPort     => $self->external_port,
+            SuccessEvent => 'connect',
+            FailureEvent => 'error',
+            Reuse        => 'yes',
+        )
+    ) or die $!;
 
-    #warn join ' ', map { substr($_, 0, 8) } keys %{ $self->filehandles };
-    return first { $self->filehandles->{$_} == $fh }
-           keys %{ $self->filehandles };
+    POE::Component::Server::TCP->new(
+        Port               => $self->client_port,
+        ClientConnected    => sub { $self->client_connect(@_) },
+        ClientDisconnected => sub { $self->client_disconnect(@_)  },
+        ClientInput        => sub { $self->client_input(@_)  },
+    );
 }
 
 #TODO send backup info
-sub client_connect_event {
+sub client_connect {
     my $self = shift;
 
-    if ( scalar(%{$self->filehandles}) ) {
-        foreach my $id (keys %{ $self->filehandles }) {
+    $self->client_socket($_[HEAP]->{client});
+
+    if ( scalar(%{$self->rw_set}) ) {
+        foreach my $id (keys %{ $self->rw_set }) {
             $self->send_to_client(
                 {
                     param => 'connect',
@@ -127,53 +90,51 @@ sub client_connect_event {
     }
 }
 
-{
-    my $du = Data::UUID->new;
-    sub connect_event {
-        my $self = shift;
-        my $fh = shift;
+sub _connect {
+    my ($self) = @_;
+    my $socket = $_[ARG0];
+    my $rw = POE::Wheel::ReadWrite->new(
+        Handle     => $socket,
+        Driver     => POE::Driver::SysRW->new,
+        Filter     => POE::Filter::Stream->new,
+        InputEvent => 'input',
+        ErrorEvent => 'error',
+    );
 
-        my $id = $du->create_str;
-        $self->filehandles->{$id} = $fh;
+    my $wheel_id = $rw->ID;
+    $self->rw_set->{$wheel_id} = $rw;
 
-        return unless $self->client_socket;
-
-        if ($fh == $self->client_socket) {
-            $self->client_connection;
-            return;
-        }
-
-
-        my $data = {
+    $self->send_to_client(
+        {
             param => 'connect',
             data  => {
-                id    => $id,
+                id => $wheel_id,
             }
-        };
-        $self->send_to_client($data);
-    }
+        }
+    );
 }
 
-sub input_event {
-    my $self  = shift;
-    my $fh    = shift;
-    my $input = shift;
+sub _input {
+    my ($self)             = @_;
+    my ($input, $wheel_id) = @_[ARG0, ARG1];
+    $input =~ s/[\r\n]*$//;
 
-    my $data = {
-        param => 'input',
-        data => {
-            id    => $self->id_lookup($fh),
-            value => $input,
-        },
-    };
-    $self->send_to_client($data);
+
+    $self->send_to_client(
+        {
+            param => 'input',
+            data => {
+                id    => $wheel_id,
+                value => $input,
+            }
+        }
+    );
 }
 
-sub client_input_event {
+sub _process_input {
     my $self = shift;
     my $input = shift;
-    chomp($input);
-    return unless $input;
+
     my $json = eval { from_json($input) };
 
     {
@@ -184,143 +145,90 @@ sub client_input_event {
             warn "Invalid JSON structure!";
         }
         else {
-            last unless my $id = $json->{data}{id};
-            last unless ref $self->filehandles;
-            last unless $self->filehandles->{$id};
+            last unless $json->{data}->{id};
+            last unless reftype($self->rw_set);
+            last unless $self->rw_set->{ $json->{data}->{id} };
 
             if ($json->{param} eq 'output') {
-                eval { $self->filehandles->{$id}->send($json->{data}{value}) }
-                    or last;
+                $self->rw_set->{ $json->{data}->{id} }->put( $json->{data}->{value} );
                 if ($json->{updates}) {
                     foreach my $key  (%{ $json->{updates} }) {
-                        my $value = $json->{updates}{$key};
-                        $self->socket_info->{$id}{$key} = $value
+                        my $value = $json->{updates}->{$key};
+                        $self->socket_info->{ $json->{data}->{id} }->{ $key } = $value
                     }
                 }
             }
             elsif ($json->{param} eq 'disconnect') {
-                my $id = $json->{data}{id};
-                $self->filehandles->{$id}->close;
+                my $id = $json->{data}->{id};
+                $self->rw_set->{$id}->shutdown_output;
             }
         }
     }
+
 }
 
-sub disconnect_event {
+sub client_input {
     my $self = shift;
-    my $fh   = shift;
+    my $input = $_[ARG0];
+    my @packets = split m{\e}, $input;
+    s/[\r\n]*$// for @packets;
+    $self->_process_input($_) for grep { $_} @packets;
+}
 
+sub _disconnect {
+    my ($self)   = @_;
+    my $wheel_id = $_[ARG3];
+    delete $self->rw_set->{$wheel_id};
     $self->send_to_client(
         {
             param => 'disconnect',
             data => {
-                id => $self->id_lookup($fh),
+                id => $wheel_id,
             }
         }
     );
 }
 
-sub client_disconnect_event {
-    my $self = shift;
+sub _error {
+    my ($self) = @_;
+    my ($operation, $errnum, $errstr) = @_[ARG0, ARG1, ARG2];
+    warn "[SERVER] $operation error $errnum: $errstr";
 }
+
+sub client_disconnect {
+    my $self = shift;
+    #$_->put("Hold tight!\nThe MUD will be back up shortly.\n") for values %{$self->rw_set||{}};
+}
+
 
 sub send {
     my $self = shift;
     my $id = shift;
     my $data = shift;
 
-    $self->filehandles->{$id}->send( to_json($data) );
+    $self->rw_set->{$id}->put(to_json($data));
 }
 
 sub send_to_client {
     my $self   = shift;
     my $data   = shift;
 
-    return unless $self->client_socket;
-    my $output = to_json $data;
-    #warn "[I Sends]: $output";
-    $self->client_socket->send("$output\n\e");
+    return unless defined $self->client_socket;
+    $self->client_socket->put(to_json($data));
 }
 
-#sub foo {
-#    my $self = shift;
-#    my @sockets = @_;
-#
-#    return join(' ',
-#        map {
-#            if ($_ == $self->external_handle) { 'external' }
-#            elsif ($_ == $self->client_handle) { 'client' }
-#            elsif ($_ == $self->client_socket) { 'client_socket' }
-#            else { 'player ' . substr($self->id_lookup($_), 0, 8) }
-#        } @sockets
-#    );
-#}
-
-sub cycle {
-    my $self = shift;
-
-    my @ready;
-    CYCLE: foreach my $fh (@ready = $self->read_set->can_read) {
-        #warn $self->foo(@ready);
-
-        #warn "begin loop";
-        next unless $self->external_handle;
-        next unless $self->client_handle;
-
-        if ($fh == $self->external_handle) {
-            my $socket = $fh->accept();
-            my $sflags = fcntl($socket, F_GETFL, 0);
-            fcntl $socket, F_SETFL, $sflags | O_NONBLOCK;
-            $self->read_set->add($socket);
-            $self->connect_event($socket);
-        }
-        elsif ($fh == $self->client_handle) {
-            if ($self->client_socket) {
-                $fh->accept->close;
-            }
-            else {
-                $self->client_socket( $fh->accept() );
-                $self->read_set->add($self->client_socket);
-                $self->client_connect_event($self->client_socket);
-            }
-        }
-        else {
-            my $buf = <$fh>;
-            next unless defined $buf;
-            if ($buf ne '0') {
-                next unless $self->client_socket;
-                $buf =~ s/[\r\n]+$//s;
-                #warn "!!!!\n\n$buf\n\n!!!";
-                if ($fh == $self->client_socket) {
-                    my @packets = grep { $_ } split m[\e], $buf;
-                    $self->client_input_event($_) for @packets;
-                }
-                else {
-                    $self->input_event($fh, $buf);
-                }
-                redo CYCLE;
-            }
-            else {
-                if ($self->client_socket && $fh == $self->client_socket) {
-                    $self->client_disconnect_event($fh);
-                    $self->_clear_client_socket;
-                }
-                else {
-                    $self->disconnect_event($fh);
-                    $self->read_set->remove($fh);
-                    delete $self->filehandles->{$fh};
-                }
-            }
-        }
-    }
-
-    return 1;
-}
 
 sub run {
     my $self = shift;
-    1 while $self->cycle;
+    POE::Kernel->run();
 }
+
+event START => \&_client_start;
+
+event connect     => \&_connect;
+event error       => \&_error;
+event input       => \&_input;
+event disconnect  => \&_disconnect;
 
 __PACKAGE__->meta->make_immutable;
 
