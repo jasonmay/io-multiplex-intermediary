@@ -349,27 +349,27 @@ so that you can hook I<around> these methods in any way you see fit.
 
 =over
 
-=item C<client_connect_event>
+=item C<client_connect>
 
 Method called when the client connects to the intermediary
 
-=item C<client_input_event>
+=item C<client_input>
 
 Method called when the client sends data to the intermediary
 
-=item C<client_disconnect_event>
+=item C<client_disconnect>
 
 Method called when the client disconnects from the intermediary
 
-=item C<connect_event>
+=item C<connect>
 
 Method called when a user connects to the intermediary
 
-=item C<input_event>
+=item C<input>
 
 Method called when a user sends data to the intermediary
 
-=item C<disconnect_event>
+=item C<disconnect>
 
 Method called when a user disconnects from the intermediary
 
