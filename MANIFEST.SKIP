@@ -1,0 +1,6 @@
+inc
+.git
+Makefile
+Makefile.old
+MANIFEST.bak
+MANIFEST.SKIP
