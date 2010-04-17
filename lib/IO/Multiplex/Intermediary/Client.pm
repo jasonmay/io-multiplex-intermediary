@@ -167,12 +167,33 @@ sub send {
         param => 'output',
         data => {
             value => $message,
-            id => $id,
+            id    => $id,
         }
     };
 
     #warn "[C Sends]: $output";
     $self->socket->send("$output\n\e");
+}
+
+sub multisend {
+    my $self = shift;
+    my %ids  = @_;
+
+    my $packet = q[];
+    while (my ($id, $message) = each %ids) {
+        $packet .= to_json +{
+            param => 'output',
+            data => {
+                value => $message,
+                id    => $id,
+            },
+        };
+
+        $packet .= "\n\e";
+    }
+
+    #warn "[C Sends]: $output";
+    $self->socket->send($packet);
 }
 
 sub tick {
@@ -310,6 +331,11 @@ input to respond to.
 
 Tells the intermediary to output C<$message> to the user with the ID
 C<$id>.
+
+=item C<multisend($id =E<gt> $message, $id =E<gt> $message, ...)>
+
+Tells the intermediary to output various messages to its corresponding
+IDs.
 
 =back
 
