@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use Test::More tests => 15;
+use Test::More tests => 16;
 
 BEGIN {
     use_ok 'IO::Multiplex::Intermediary';
@@ -29,3 +29,4 @@ can_ok ('IO::Multiplex::Intermediary::Client', 'input_hook');
 can_ok ('IO::Multiplex::Intermediary::Client', 'disconnect_hook');
 
 can_ok ('IO::Multiplex::Intermediary::Client', 'send');
+can_ok ('IO::Multiplex::Intermediary::Client', 'multisend');
