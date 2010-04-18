@@ -1,6 +1,6 @@
 inc
 .git
-Makefile
+Makefile$
 Makefile.old
 MANIFEST.bak
 MANIFEST.SKIP
