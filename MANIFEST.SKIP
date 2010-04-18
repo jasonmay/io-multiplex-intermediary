@@ -1,6 +1,8 @@
-inc
-.git
-Makefile$
-Makefile.old
-MANIFEST.bak
-MANIFEST.SKIP
+^inc/
+^\.git/
+^Makefile$
+^Makefile\.old
+^MANIFEST\.bak
+^MANIFEST\.SKIP
+^IO-Multiplex-Intermediary-.+\.tar\.gz
+^TODO$
