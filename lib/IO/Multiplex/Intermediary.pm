@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 package IO::Multiplex::Intermediary;
 
-our $VERSION = "0.04";
+our $VERSION = "0.05";
 
 use MooseX::POE;
 use namespace::autoclean;
