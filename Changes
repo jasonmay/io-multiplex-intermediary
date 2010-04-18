@@ -1,4 +1,7 @@
-0.04
+0.05
+    - MANIFEST.SKIP is fixed so Makefile.PL gets shipped
+
+0.04 [NOT INSTALLABLE VIA CPAN]
     - Give client a method 'multisend' allowing to efficiently emit
       data to multiple IDs at one time
 
