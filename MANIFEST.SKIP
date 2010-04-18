@@ -1,5 +1,5 @@
 ^inc/
-^\.git/
+^\.git
 ^Makefile$
 ^Makefile\.old
 ^MANIFEST\.bak
