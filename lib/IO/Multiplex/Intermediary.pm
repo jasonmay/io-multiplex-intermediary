@@ -76,18 +76,16 @@ sub client_connect {
 
     $self->client_socket($_[HEAP]->{client});
 
-    if ( scalar(%{$self->rw_set}) ) {
-        foreach my $id (keys %{ $self->rw_set }) {
-            $self->send_to_client(
-                {
-                    param => 'connect',
-                    data  => {
-                        id    => $id,
-                    }
-                }
-            );
+    my @structures = map {
+        +{
+            param => 'connect',
+            data => {
+                id => $_
+            },
         }
-    }
+    } keys %{ $self->rw_set };
+
+    $self->multisend(@structures);
 }
 
 sub _connect {
@@ -206,7 +204,19 @@ sub send {
     my $id = shift;
     my $data = shift;
 
-    $self->rw_set->{$id}->put(to_json($data));
+    $self->rw_set->{$id}->put(to_json($data) . "\e");
+    $self->client_socket->flush;
+}
+
+sub multisend {
+    my $self = shift;
+    my @refs  = @_;
+
+    my $packet = join '', map { sprintf qq(%s\e), to_json $_ } @refs;
+
+    $packet .= "\0";
+    $self->client_socket->put($packet);
+    $self->client_socket->flush;
 }
 
 sub send_to_client {
@@ -214,7 +224,8 @@ sub send_to_client {
     my $data   = shift;
 
     return unless defined $self->client_socket;
-    $self->client_socket->put(to_json($data));
+    $self->client_socket->put(to_json($data) . "\e");
+    $self->client_socket->flush;
 }
 
 

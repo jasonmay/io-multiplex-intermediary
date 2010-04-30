@@ -70,7 +70,8 @@ sub parse_input {
     my @inputs = grep { $_ } split /\e/m, $input;
     for (@inputs) {
         my $output = $self->parse_json($_);
-        $self->socket->send("$output\n\e");
+        $self->socket->send("$output\e");
+        $self->socket->flush;
     }
 };
 
@@ -156,7 +157,8 @@ sub force_disconnect {
         }
     };
 
-    $self->socket->send("$output\n\e");
+    $self->socket->send("$output\e");
+    $self->socket->flush;
 }
 
 sub send {
@@ -172,7 +174,8 @@ sub send {
     };
 
     #warn "[C Sends]: $output";
-    $self->socket->send("$output\n\e");
+    $self->socket->send("$output\e");
+    $self->socket->flush;
 }
 
 sub multisend {
@@ -189,26 +192,38 @@ sub multisend {
             },
         };
 
-        $packet .= "\n\e";
+        $packet .= "\e";
     }
 
     #warn "[C Sends]: $output";
     $self->socket->send($packet);
+    $self->socket->flush;
 }
 
 sub tick {
     # stub
 }
 
+sub eless {
+    my $f = shift;
+    $f =~ s/\e//g;
+    return $f;
+};
 sub cycle {
     my $self = shift;
 
     my $sec_fraction = $self->remaining_usecs / 1_000_000;
-    my @sockets_available = $self->read_set->can_read($sec_fraction);
-    foreach my $fh (@sockets_available) {
-        my $buf = <$fh>;
-        return 0 unless defined $buf;
-        $self->parse_input($buf);
+    my @sockets_available;
+    CYCLE: {
+        @sockets_available = $self->read_set->can_read($sec_fraction);
+        foreach my $fh (@sockets_available) {
+            my $buf = <$fh>;
+            $buf =~ s/\0$//;
+            return 0 unless defined $buf;
+            $self->parse_input($buf);
+            warn "redo!";
+            redo CYCLE;
+        }
     }
 
     my ($secs, $usecs) = gettimeofday;
