@@ -3,28 +3,20 @@ package IO::Multiplex::Intermediary;
 
 our $VERSION = "0.05";
 
-use MooseX::POE;
+use Moose;
 use namespace::autoclean;
 
+use AnyEvent::Socket;
+use AnyEvent::Handle;
 use JSON;
+use List::Util qw(first);
 use List::MoreUtils qw(any);
-use Scalar::Util qw(reftype);
+use Scalar::Util qw(reftype weaken);
+use Data::UUID::LibUUID;
 
-use POE qw(
-    Wheel::SocketFactory
-    Component::Server::TCP
-    Wheel::ReadWrite
-    Filter::Stream
-);
-
-has filehandles => (
-    is  => 'rw',
-    isa => 'POE::Wheel::SocketFactory',
-);
-
-has rw_set => (
+has handles => (
     is => 'rw',
-    isa => 'HashRef[Int]',
+    isa => 'HashRef[AnyEvent::Handle]',
     default => sub { +{} },
 );
 
@@ -34,9 +26,10 @@ has external_port => (
     default => 6715
 );
 
-has client_socket => (
+has client_handle => (
     is      => 'rw',
-    isa     => 'POE::Wheel::ReadWrite',
+    isa     => 'AnyEvent::Handle',
+    clearer => '_clear_client_handle',
 );
 
 has client_port => (
@@ -51,30 +44,121 @@ has socket_info => (
     default => sub { +{} },
 );
 
-sub _client_start {
-    my ($self) = @_;
-    $self->filehandles(
-        POE::Wheel::SocketFactory->new(
-            BindPort     => $self->external_port,
-            SuccessEvent => 'connect',
-            FailureEvent => 'error',
-            Reuse        => 'yes',
-        )
-    ) or die $!;
+has _internal_guard => (
+    is  => 'rw',
+    isa => 'AnyEvent::Util::guard',
+);
 
-    POE::Component::Server::TCP->new(
-        Port               => $self->client_port,
-        ClientConnected    => sub { $self->client_connect(@_) },
-        ClientDisconnected => sub { $self->client_disconnect(@_)  },
-        ClientInput        => sub { $self->client_input(@_)  },
-    );
+has _external_guard => (
+    is  => 'rw',
+    isa => 'AnyEvent::Util::guard',
+);
+
+has _condvar => (
+    is => 'ro',
+    default => sub { AnyEvent->condvar },
+);
+
+sub BUILD {
+    my $self = shift;
+
+    my $json = JSON->new;
+    weaken( my $weakself = $self );
+    my $eguard = tcp_server undef, 6715, sub {
+        my ($fh, $host, $port) = @_;
+        my $uuid = new_uuid_string();
+        my $handle = AnyEvent::Handle->new(
+            fh => $fh,
+            on_error => sub {
+                my ($h, $fatal, $error) = @_;
+
+                warn $error;
+                $h->destroy if $fatal;
+                $weakself->_disconnect( $weakself->id_lookup($h) );
+            },
+            on_read => sub {
+                my $h = shift;
+                $h->push_read(
+                    line => sub {
+                        my $h = shift;
+                        my $input = shift;
+                        if ($weakself->client_handle) {
+                            my $data = +{
+                                param => 'input',
+                                data => {
+                                    id    => $uuid,
+                                    value => $input,
+                                }
+                            };
+
+                            #use DDS;
+                            #warn "sending out: " . Dumper($data)  . "<--";
+                            $weakself->send_to_client($data);
+                        }
+                        else {
+                            $weakself->no_client_hook($h);
+                        }
+                    }
+                );
+            },
+        );
+
+        $weakself->_connect($uuid => $handle);
+    };
+
+    my $iguard = tcp_server undef, 9000, sub {
+        my ($fh, $host, $port) = @_;
+        if ($weakself->client_handle) {
+            close $fh;
+            return;
+        }
+
+        my $h = AnyEvent::Handle->new(
+            fh       => $fh,
+            on_error => sub {
+                my ($fh, $fatal, $error) = @_;
+
+                warn $error;
+                $fh->destroy if $fatal;
+                $weakself->_clear_client_handle();
+
+            },
+            on_read  => sub {
+                my $h = shift;
+                $h->push_read(
+                    json => sub {
+                        my $handle    = shift;
+                        my $structure = shift;
+                        my @elements = reftype $structure eq 'ARRAY'
+                                     ? @$structure
+                                     : ($structure);
+
+                        foreach my $element (@elements) {
+                            $weakself->_process_structure($element);
+                        }
+                    }
+                );
+            },
+        );
+
+        $weakself->client_handle($h);
+        $weakself->client_connect;
+    };
+
+    # make scope of servers end at package destruction
+    $self->_internal_guard($iguard);
+    $self->_external_guard($eguard);
+}
+
+sub no_client_hook {
+    my $self = shift;
+    my $handle = shift;
+    #$handle->push_write("The MUD is down! etc\015\012");
 }
 
 #TODO send backup info
 sub client_connect {
     my $self = shift;
-
-    $self->client_socket($_[HEAP]->{client});
 
     my @structures = map {
         +{
@@ -83,163 +167,152 @@ sub client_connect {
                 id => $_
             },
         }
-    } keys %{ $self->rw_set };
+    } keys %{ $self->handles };
 
     $self->multisend(@structures);
 }
 
 sub _connect {
-    my ($self) = @_;
-    my $socket = $_[ARG0];
-    my $rw = POE::Wheel::ReadWrite->new(
-        Handle     => $socket,
-        Driver     => POE::Driver::SysRW->new,
-        Filter     => POE::Filter::Stream->new,
-        InputEvent => 'input',
-        ErrorEvent => 'error',
-    );
+    my $self   = shift;
+    my $id     = shift;
+    my $handle = shift;
 
-    my $wheel_id = $rw->ID;
-    $self->rw_set->{$wheel_id} = $rw;
+    $self->handles->{$id} = $handle;
 
     $self->send_to_client(
         {
             param => 'connect',
             data  => {
-                id => $wheel_id,
+                id => $id,
             }
         }
     );
 }
 
 sub _input {
-    my ($self)             = @_;
-    my ($input, $wheel_id) = @_[ARG0, ARG1];
-    $input =~ s/[\r\n]*$//;
+    my $self  = shift;
+    my $id    = shift;
+    my $input = shift;
 
+    $input =~ s/[\r\n]*$//;
 
     $self->send_to_client(
         {
             param => 'input',
             data => {
-                id    => $wheel_id,
+                id    => $id,
                 value => $input,
             }
         }
     );
 }
 
-sub _process_input {
-    my $self = shift;
-    my $input = shift;
+#sub _process_input {
+#    my $self = shift;
+#    my $input = shift;
+#
+#    my $json = eval { from_json($input) };
+#    return if $@ or !$json;
+#
+#    $self->_process_structure($json);
+#}
 
-    my $json = eval { from_json($input) };
+sub _process_structure {
+    my $self      = shift;
+    my $structure = shift;
 
-    {
-        if ($@ || !$json) {
-            warn "JSON error: $@";
-        }
-        elsif (!exists $json->{param}) {
-            warn "Invalid JSON structure!";
-        }
-        else {
-            last unless $json->{data}->{id};
-            last unless reftype($self->rw_set);
-            last unless $self->rw_set->{ $json->{data}->{id} };
+    #warn Dumper($structure);
+    if (!exists $structure->{param}) {
+        warn "Invalid JSON structure!";
+    }
+    else {
+        return unless $structure->{data}{id};
+        return unless reftype($self->handles);
+        return unless $self->handles->{ $structure->{data}{id} };
 
-            if ($json->{param} eq 'output') {
-                $self->rw_set->{ $json->{data}->{id} }->put( $json->{data}->{value} );
-                if ($json->{updates}) {
-                    foreach my $key  (%{ $json->{updates} }) {
-                        my $value = $json->{updates}->{$key};
-                        $self->socket_info->{ $json->{data}->{id} }->{ $key } = $value
-                    }
+        if ($structure->{param} eq 'output') {
+            $self->handles->{ $structure->{data}{id} }->push_write( $structure->{data}{value} );
+            if ($structure->{updates}) {
+                foreach my $key  (%{ $structure->{updates} }) {
+                    my $value = $structure->{updates}{$key};
+                    $self->socket_info->{ $structure->{data}{id} }{ $key } = $value
                 }
             }
-            elsif ($json->{param} eq 'disconnect') {
-                my $id = $json->{data}->{id};
-                $self->rw_set->{$id}->shutdown_output;
-            }
+        }
+        elsif ($structure->{param} eq 'disconnect') {
+            my $id = $structure->{data}->{id};
+            $self->handles->{$id}->shutdown_output;
         }
     }
-
 }
 
-sub client_input {
-    my $self = shift;
-    my $input = $_[ARG0];
-    my @packets = split m{\e}, $input;
-    s/[\r\n]*$// for @packets;
-    $self->_process_input($_) for grep { $_} @packets;
-}
+#sub client_input {
+#    my $self = shift;
+#    my $input = $_[ARG0];
+#    my @packets = split m{\e}, $input;
+#    s/[\r\n]*$// for @packets;
+#    $self->_process_input($_) for grep { $_} @packets;
+#}
 
 sub _disconnect {
-    my ($self)   = @_;
-    my $wheel_id = $_[ARG3];
-    delete $self->rw_set->{$wheel_id};
+    my $self   = shift;
+    my $id     = shift;
+    delete $self->handles->{$id};
+
     $self->send_to_client(
         {
             param => 'disconnect',
             data => {
-                id => $wheel_id,
+                id => $id,
             }
         }
     );
 }
 
-sub _error {
-    my ($self) = @_;
-    my ($operation, $errnum, $errstr) = @_[ARG0, ARG1, ARG2];
-    warn "[SERVER] $operation error $errnum: $errstr";
-}
-
 sub client_disconnect {
     my $self = shift;
-    #$_->put("Hold tight!\nThe MUD will be back up shortly.\n") for values %{$self->rw_set||{}};
+    #$_->put("Hold tight!\nThe MUD will be back up shortly.\n") for values %{$self->handles||{}};
 }
-
 
 sub send {
     my $self = shift;
     my $id = shift;
     my $data = shift;
 
-    $self->rw_set->{$id}->put(to_json($data) . "\e");
-    $self->client_socket->flush;
+    warn "handle $id doesn't exist", return unless $self->hanles->{$id};
+    $self->handles->{$id}->push_write(json => $data);
 }
 
 sub multisend {
     my $self = shift;
     my @refs  = @_;
 
-    my $packet = join '', map { sprintf qq(%s\e), to_json $_ } @refs;
-
-    $packet .= "\0";
-    $self->client_socket->put($packet);
-    $self->client_socket->flush;
+    return unless $self->client_handle;
+    $self->client_handle->push_write(json => \@refs);
 }
 
 sub send_to_client {
     my $self   = shift;
     my $data   = shift;
 
-    return unless defined $self->client_socket;
-    $self->client_socket->put(to_json($data) . "\e");
-    $self->client_socket->flush;
+    return unless defined $self->client_handle;
+    $self->client_handle->push_write(json => $data);
 }
 
+sub id_lookup {
+    my $self   = shift;
+    my $handle = shift;
+
+    return
+        first { $self->handles->{$_} == $handle }
+            keys %{ $self->handles };
+}
 
 sub run {
     my $self = shift;
-    POE::Kernel->run();
+    $self->_condvar->wait;
 }
 
-event START => \&_client_start;
-
-event connect     => \&_connect;
-event error       => \&_error;
-event input       => \&_input;
-event disconnect  => \&_disconnect;
 
 __PACKAGE__->meta->make_immutable;
 

@@ -3,30 +3,21 @@ package IO::Multiplex::Intermediary::Client;
 use Moose;
 use namespace::autoclean;
 
-use IO::Socket;
-use IO::Select;
-use Time::HiRes qw(gettimeofday);
+use AnyEvent;
+use AnyEvent::Socket;
+use AnyEvent::Handle;
 use JSON;
+
+use Scalar::Util qw(weaken reftype);
 
 local $| = 1;
 
-has socket => (
+has handle => (
     is         => 'rw',
-    isa        => 'IO::Socket::INET',
+    isa        => 'AnyEvent::Handle',
     lazy_build => 1,
     clearer    => 'clear_socket',
 );
-
-sub _build_socket {
-    my $self = shift;
-    my $socket = IO::Socket::INET->new(
-        PeerAddr => $self->host,
-        PeerPort => $self->port,
-        Proto    => 'tcp',
-    ) or die $!;
-
-    return $socket;
-}
 
 has host => (
     is      => 'ro',
@@ -42,38 +33,34 @@ has port => (
     default => 9000
 );
 
-has read_set => (
-    is         => 'ro',
-    isa        => 'IO::Select',
-    lazy_build => 1,
+has _handle_guard => (
+    is => 'rw',
+    isa => 'AnyEvent::Util::guard',
 );
 
-has remaining_usecs => (
-    is      => 'rw',
-    isa     => 'Int',
-    default => 1_000_000,
+has _timer_guard => (
+    is => 'rw',
+    isa => 'Any',
 );
 
-sub _build_read_set {
-    my $self = shift;
-    my $select = IO::Select->new;
+has _condvar => (
+    is => 'ro',
+    isa => 'AnyEvent::CondVar',
+    default => sub { AnyEvent->condvar },
+);
 
-    $select->add($self->socket);
-    return $select;
-}
-
-sub parse_input {
-    my $self  = shift;
-    my $input = shift;
-
-    $input =~ s/[\r\n]*$//s;
-    my @inputs = grep { $_ } split /\e/m, $input;
-    for (@inputs) {
-        my $output = $self->parse_json($_);
-        $self->socket->send("$output\e");
-        $self->socket->flush;
-    }
-};
+#sub parse_input {
+#    my $self  = shift;
+#    my $input = shift;
+#
+#    $input =~ s/[\r\n]*$//s;
+#    my @inputs = grep { $_ } split /\e/m, $input;
+#    for (@inputs) {
+#        my $output = $self->parse_json($_);
+#        $self->socket->send("$output\e");
+#        $self->socket->flush;
+#    }
+#};
 
 sub build_response {
     my $self     = shift;
@@ -87,25 +74,25 @@ sub connect_hook {
     my $self   = shift;
     my $data   = shift;
 
-    return to_json({param => 'null'});
+    return +{param => 'null'};
 }
 
 sub input_hook {
     my $self   = shift;
     my $data   = shift;
 
-    return to_json(
-        {
-            param => 'output',
-            data => {
-                value => $self->build_response(
-                    $data->{data}->{id},
-                    $data->{data}->{value}
-                ),
-                id => $data->{data}->{id},
-            }
+    my $response = +{
+        param => 'output',
+        data => {
+            value => $self->build_response(
+                $data->{data}->{id},
+                $data->{data}->{value}
+            ),
+            id => $data->{data}->{id},
         }
-    );
+    };
+
+    return $response;
 }
 
 sub disconnect_hook {
@@ -114,22 +101,17 @@ sub disconnect_hook {
 
     my $id = $data->{data}->{id};
 
-    return to_json(
-        {
-            param => 'disconnect',
-            data  => {
-                success => 1,
-            },
-        }
-    );
+    return + {
+        param => 'disconnect',
+        data  => {
+            success => 1,
+        },
+    }
 }
 
-sub parse_json {
+sub _dispatch_data {
     my $self = shift;
-    my $json = shift;
-    my $data = eval { from_json($json) };
-
-    if ($@) { warn $@; return }
+    my $data = shift;
 
     my %actions = (
         'connect'    => sub { $self->connect_hook($data)    },
@@ -141,15 +123,25 @@ sub parse_json {
         if exists $actions{ $data->{param} };
 
 
-    return to_json({param => 'null'});
+    return +{param => 'null'};
 }
+
+#sub parse_json {
+#    my $self = shift;
+#    my $json = shift;
+#    my $data = eval { from_json($json) };
+#
+#    if ($@) { warn $@; return }
+#
+#    return $self->_dispatch_data($data);
+#}
 
 sub force_disconnect {
     my $self = shift;
     my $id = shift;
     my %args = @_;
 
-    my $output = to_json +{
+    my $data = +{
         param => 'disconnect',
         data => {
             id => $id,
@@ -157,15 +149,14 @@ sub force_disconnect {
         }
     };
 
-    $self->socket->send("$output\e");
-    $self->socket->flush;
+    $self->handle->push_write(json => $data);
 }
 
 sub send {
     my $self = shift;
     my ($id, $message) = @_;
 
-    my $output = to_json +{
+    my $data = +{
         param => 'output',
         data => {
             value => $message,
@@ -174,17 +165,16 @@ sub send {
     };
 
     #warn "[C Sends]: $output";
-    $self->socket->send("$output\e");
-    $self->socket->flush;
+    $self->handle->push_write(json => $data);
 }
 
 sub multisend {
     my $self = shift;
     my %ids  = @_;
 
-    my $packet = q[];
+    my @refs;
     while (my ($id, $message) = each %ids) {
-        $packet .= to_json +{
+        push @refs, +{
             param => 'output',
             data => {
                 value => $message,
@@ -192,54 +182,67 @@ sub multisend {
             },
         };
 
-        $packet .= "\e";
     }
 
-    #warn "[C Sends]: $output";
-    $self->socket->send($packet);
-    $self->socket->flush;
+    $self->handle->push_write(json => \@refs);
 }
 
 sub tick {
     # stub
 }
 
-sub eless {
-    my $f = shift;
-    $f =~ s/\e//g;
-    return $f;
-};
-sub cycle {
+sub BUILD {
     my $self = shift;
+    weaken( my $weakself = $self );
+    my $guard = tcp_connect $self->host, $self->port, sub {
+        print "Connected!\n";
+        my ($fh, $host, $port) = @_ or do {
+            # friggin tcp_connect catches dies
+            warn sprintf(
+                "unable to connect to %s on %s",
+                $self->host,
+                $self->port
+            );
 
-    my $sec_fraction = $self->remaining_usecs / 1_000_000;
-    my @sockets_available;
-    CYCLE: {
-        @sockets_available = $self->read_set->can_read($sec_fraction);
-        foreach my $fh (@sockets_available) {
-            my $buf = <$fh>;
-            $buf =~ s/\0$//;
-            return 0 unless defined $buf;
-            $self->parse_input($buf);
-            warn "redo!";
-            redo CYCLE;
-        }
-    }
+            exit(1);
+        };
 
-    my ($secs, $usecs) = gettimeofday;
-    my $remaining      =   1_000_000 - $usecs;
+        my $handle = AnyEvent::Handle->new(
+            fh => $fh,
+            on_read => sub {
+                my $h = shift;
+                $h->push_read(
+                    json => sub {
+                        my $handle = shift;
+                        my $data = shift;
+                        my @elements = reftype $data eq 'ARRAY'
+                                     ? @$data
+                                     : ($data);
 
-    $remaining ||= 1_000_000;
-    $self->remaining_usecs($remaining);
+                        foreach my $element (@elements) {
+                            my $result = $weakself->_dispatch_data($element);
+                            $handle->push_write(json => $result);
+                        }
+                    }
+                );
+            },
+            on_error => sub {
+                my ($fh, $fatal, $error) = @_;
 
-    $self->tick unless @sockets_available;
+                warn $error;
+                $fh->destroy if $fatal;
+                $weakself->_condvar->send;
+            },
+        );
 
-    return 1;
+        $self->handle($handle);
+    };
+    $self->_handle_guard($guard);
 }
 
 sub run {
     my $self = shift;
-    1 while $self->cycle;
+    $self->_condvar->wait;
 }
 
 __PACKAGE__->meta->make_immutable;
