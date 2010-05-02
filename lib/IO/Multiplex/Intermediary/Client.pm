@@ -7,6 +7,7 @@ use AnyEvent;
 use AnyEvent::Socket;
 use AnyEvent::Handle;
 use JSON;
+use Data::UUID::LibUUID;
 
 use Scalar::Util qw(weaken reftype);
 
@@ -49,19 +50,6 @@ has _condvar => (
     default => sub { AnyEvent->condvar },
 );
 
-#sub parse_input {
-#    my $self  = shift;
-#    my $input = shift;
-#
-#    $input =~ s/[\r\n]*$//s;
-#    my @inputs = grep { $_ } split /\e/m, $input;
-#    for (@inputs) {
-#        my $output = $self->parse_json($_);
-#        $self->socket->send("$output\e");
-#        $self->socket->flush;
-#    }
-#};
-
 sub build_response {
     my $self     = shift;
     my $wheel_id = shift;
@@ -80,16 +68,19 @@ sub connect_hook {
 sub input_hook {
     my $self   = shift;
     my $data   = shift;
+    my $txn_id = shift;
 
     my $response = +{
         param => 'output',
         data => {
             value => $self->build_response(
-                $data->{data}->{id},
-                $data->{data}->{value}
+                $data->{data}{id},
+                $data->{data}{value},
+                $txn_id,
             ),
-            id => $data->{data}->{id},
-        }
+            id => $data->{data}{id},
+        },
+        txn_id => $txn_id,
     };
 
     return $response;
@@ -106,47 +97,41 @@ sub disconnect_hook {
         data  => {
             success => 1,
         },
+        txn_id => new_uuid_string(),
     }
 }
 
 sub _dispatch_data {
     my $self = shift;
     my $data = shift;
+    my $txn_id = shift;
 
     my %actions = (
-        'connect'    => sub { $self->connect_hook($data)    },
-        'input'      => sub { $self->input_hook($data)      },
-        'disconnect' => sub { $self->disconnect_hook($data) },
+        'connect'    => sub { $self->connect_hook(@_)    },
+        'input'      => sub { $self->input_hook(@_)      },
+        'disconnect' => sub { $self->disconnect_hook(@_) },
     );
 
-    return $actions{ $data->{param} }->()
+    return $actions{ $data->{param} }->($data, $txn_id)
         if exists $actions{ $data->{param} };
 
 
     return +{param => 'null'};
 }
 
-#sub parse_json {
-#    my $self = shift;
-#    my $json = shift;
-#    my $data = eval { from_json($json) };
-#
-#    if ($@) { warn $@; return }
-#
-#    return $self->_dispatch_data($data);
-#}
-
 sub force_disconnect {
-    my $self = shift;
-    my $id = shift;
-    my %args = @_;
+    my $self     = shift;
+    my $id       = shift;
+    my $txn_id   = shift;
+    my @dep_txns = @_;
 
     my $data = +{
         param => 'disconnect',
         data => {
             id => $id,
-            %args,
-        }
+        },
+        txn_id   => $txn_id || new_uuid_string(),
+        dep_txns => [@dep_txns],
     };
 
     $self->handle->push_write(json => $data);
@@ -154,17 +139,21 @@ sub force_disconnect {
 
 sub send {
     my $self = shift;
-    my ($id, $message) = @_;
+    my ($id, $message, $txn_id, @dep_txns) = @_;
 
+    $txn_id ||= new_uuid_string();
     my $data = +{
         param => 'output',
         data => {
             value => $message,
             id    => $id,
-        }
+        },
+        txn_id => $txn_id,
+        dep_txns => [@dep_txns],
     };
 
-    #warn "[C Sends]: $output";
+    #use DDS;
+    #warn Dump($data)->Out . ' result' if @dep_txns;
     $self->handle->push_write(json => $data);
 }
 
@@ -180,6 +169,7 @@ sub multisend {
                 value => $message,
                 id    => $id,
             },
+            txn_id => new_uuid_string(),
         };
 
     }
@@ -219,9 +209,12 @@ sub BUILD {
                                      ? @$data
                                      : ($data);
 
+                                     #use DDS;
                         foreach my $element (@elements) {
-                            my $result = $weakself->_dispatch_data($element);
+                            my $txn_id = new_uuid_string();
+                            my $result = $weakself->_dispatch_data($element, $txn_id);
                             $handle->push_write(json => $result);
+                            #warn Dump($result)->Out . " result";
                         }
                     }
                 );

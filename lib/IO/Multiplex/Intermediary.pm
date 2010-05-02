@@ -54,6 +54,18 @@ has _external_guard => (
     isa => 'AnyEvent::Util::guard',
 );
 
+has pending_transactions => (
+    is  => 'rw',
+    isa => 'HashRef',
+    default => sub { +{} },
+);
+
+has processed_transactions => (
+    is  => 'rw',
+    isa => 'HashRef[Str]',
+    default => sub { +{} },
+);
+
 has _condvar => (
     is => 'ro',
     default => sub { AnyEvent->condvar },
@@ -91,8 +103,6 @@ sub BUILD {
                                 }
                             };
 
-                            #use DDS;
-                            #warn "sending out: " . Dumper($data)  . "<--";
                             $weakself->send_to_client($data);
                         }
                         else {
@@ -134,6 +144,7 @@ sub BUILD {
                                      : ($structure);
 
                         foreach my $element (@elements) {
+
                             $weakself->_process_structure($element);
                         }
                     }
@@ -166,6 +177,7 @@ sub client_connect {
             data => {
                 id => $_
             },
+            txn_id => new_uuid_string(),
         }
     } keys %{ $self->handles };
 
@@ -207,16 +219,6 @@ sub _input {
     );
 }
 
-#sub _process_input {
-#    my $self = shift;
-#    my $input = shift;
-#
-#    my $json = eval { from_json($input) };
-#    return if $@ or !$json;
-#
-#    $self->_process_structure($json);
-#}
-
 sub _process_structure {
     my $self      = shift;
     my $structure = shift;
@@ -226,33 +228,83 @@ sub _process_structure {
         warn "Invalid JSON structure!";
     }
     else {
+        return if     $structure->{param} eq 'null';
         return unless $structure->{data}{id};
         return unless reftype($self->handles);
         return unless $self->handles->{ $structure->{data}{id} };
 
+        my $txn_id   = $structure->{txn_id} or die "txn ID is required";
+        my $dep_txns = $structure->{dep_txns} || [];
+        my $id       = $structure->{data}{id};
+
+        TXN: {
+            #warn "processing: $structure->{data}{value}" if $structure->{data}{value};
+            if ($self->check_dep_txns($txn_id, @$dep_txns)) {
+                # warn "$structure->{data}{value} has pending deps";
+                # pend txn and nothing else
+                $self->pending_transactions->{$id}{$txn_id} = $structure;
+                return;
+            }
+
+            $self->_process_transaction($structure);
+
+            if (my $txns = $self->pending_transactions->{$id}) {
+                foreach my $txn_id (keys %$txns) {
+                    $structure = $txns->{$txn_id};
+                    warn "check pended $structure->{data}{value}";
+                    if (
+                    !$self->check_dep_txns(
+                        $txn_id,
+                        @{$structure->{dep_txns}}
+                    )
+                    ) {
+                        delete $self->pending_transactions->{$id}{$txn_id};
+                        redo TXN;
+                    }
+                }
+            }
+        }
+    }
+}
+
+sub check_dep_txns {
+    my $self = shift;
+    my $txn_id = shift;
+    my @dep_txns = @_;
+
+    my @pt = keys %{ $self->processed_transactions || {} };
+    # there are any deps?
+    return 0 unless @dep_txns; #nothing depends on it
+    # any deps already processed?
+    return 1 if any { !$self->processed_transactions->{$_} } @dep_txns;
+    # no processed deps
+    return 0;
+}
+
+sub _process_transaction {
+        my $self      = shift;
+        my $structure = shift;
+
+        my $id       = $structure->{data}{id};
+
         if ($structure->{param} eq 'output') {
-            $self->handles->{ $structure->{data}{id} }->push_write( $structure->{data}{value} );
+            warn "output";
+            $self->handles->{$id}->push_write( $structure->{data}{value} );
             if ($structure->{updates}) {
                 foreach my $key  (%{ $structure->{updates} }) {
                     my $value = $structure->{updates}{$key};
-                    $self->socket_info->{ $structure->{data}{id} }{ $key } = $value
+                    $self->socket_info->{$id}{$key} = $value
                 }
             }
         }
         elsif ($structure->{param} eq 'disconnect') {
             my $id = $structure->{data}->{id};
-            $self->handles->{$id}->shutdown_output;
+            #$self->handles->{$id}->destroy;
+            $self->handles->{$id}->on_drain(sub { shift->destroy });
         }
-    }
-}
 
-#sub client_input {
-#    my $self = shift;
-#    my $input = $_[ARG0];
-#    my @packets = split m{\e}, $input;
-#    s/[\r\n]*$// for @packets;
-#    $self->_process_input($_) for grep { $_} @packets;
-#}
+        $self->processed_transactions->{ $structure->{txn_id} } = 1;
+}
 
 sub _disconnect {
     my $self   = shift;
@@ -267,11 +319,6 @@ sub _disconnect {
             }
         }
     );
-}
-
-sub client_disconnect {
-    my $self = shift;
-    #$_->put("Hold tight!\nThe MUD will be back up shortly.\n") for values %{$self->handles||{}};
 }
 
 sub send {
@@ -294,6 +341,8 @@ sub multisend {
 sub send_to_client {
     my $self   = shift;
     my $data   = shift;
+
+    $data->{txn_id} ||= new_uuid_string();
 
     return unless defined $self->client_handle;
     $self->client_handle->push_write(json => $data);
