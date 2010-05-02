@@ -299,8 +299,7 @@ sub _process_transaction {
         }
         elsif ($structure->{param} eq 'disconnect') {
             my $id = $structure->{data}->{id};
-            #$self->handles->{$id}->destroy;
-            $self->handles->{$id}->on_drain(sub { shift->destroy });
+            $self->handles->{$id}->push_shutdown;
         }
 
         $self->processed_transactions->{ $structure->{txn_id} } = 1;
