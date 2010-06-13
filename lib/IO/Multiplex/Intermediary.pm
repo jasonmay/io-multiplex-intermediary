@@ -251,7 +251,7 @@ sub _process_structure {
             if (my $txns = $self->pending_transactions->{$id}) {
                 foreach my $txn_id (keys %$txns) {
                     $structure = $txns->{$txn_id};
-                    warn "check pended $structure->{data}{value}";
+                    #warn "check pended $structure->{data}{value}";
                     if (
                     !$self->check_dep_txns(
                         $txn_id,
