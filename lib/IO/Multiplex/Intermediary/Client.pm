@@ -36,7 +36,7 @@ has port => (
 
 has _handle_guard => (
     is => 'rw',
-    isa => 'AnyEvent::Util::guard',
+    isa => 'Any',
 );
 
 has _timer_guard => (

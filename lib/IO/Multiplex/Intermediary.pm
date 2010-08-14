@@ -46,12 +46,12 @@ has socket_info => (
 
 has _internal_guard => (
     is  => 'rw',
-    isa => 'AnyEvent::Util::guard',
+    isa => 'Any',
 );
 
 has _external_guard => (
     is  => 'rw',
-    isa => 'AnyEvent::Util::guard',
+    isa => 'Any',
 );
 
 has pending_transactions => (
