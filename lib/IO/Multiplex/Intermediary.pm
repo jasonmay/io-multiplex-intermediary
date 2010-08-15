@@ -288,7 +288,6 @@ sub _process_transaction {
         my $id       = $structure->{data}{id};
 
         if ($structure->{param} eq 'output') {
-            warn "output";
             $self->handles->{$id}->push_write( $structure->{data}{value} );
             if ($structure->{updates}) {
                 foreach my $key  (%{ $structure->{updates} }) {
