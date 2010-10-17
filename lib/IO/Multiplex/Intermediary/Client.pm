@@ -229,6 +229,7 @@ sub BUILD {
         );
 
         $self->handle($handle);
+        $self->_timer_guard(AE::timer 0, 1, sub { $weakself->tick });
     };
     $self->_handle_guard($guard);
 }
